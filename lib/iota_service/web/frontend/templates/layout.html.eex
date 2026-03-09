@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><%= assigns.title %></title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
   <!-- Pico CSS for minimal, clean styling -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
   <link rel="stylesheet" href="/static/css/app.css" />
@@ -12,7 +13,7 @@
   <%= if assigns.active != :login do %>
   <nav class="container-fluid">
     <ul>
-      <li><strong>🔷 IOTA Service</strong></li>
+      <li><strong><img src="/static/logo.svg" alt="TangleGate" style="height:1.4em;vertical-align:middle;margin-right:0.4em;"/>IOTA Service</strong></li>
     </ul>
     <ul id="nav-links">
       <li id="nav-auth-item"></li>

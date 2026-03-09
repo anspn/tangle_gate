@@ -535,6 +535,15 @@ function initSessions() {
   const closeFooterBtn = document.getElementById("btn-close-session-detail-footer");
   if (closeBtn) closeBtn.addEventListener("click", () => dialog.close());
   if (closeFooterBtn) closeFooterBtn.addEventListener("click", () => dialog.close());
+
+  // Download history button
+  const downloadBtn = document.getElementById("btn-download-session");
+  if (downloadBtn) {
+    downloadBtn.addEventListener("click", () => {
+      const sessionId = dialog.dataset.sessionId;
+      if (sessionId) downloadSessionHistory(sessionId);
+    });
+  }
 }
 
 async function loadSessionStats() {
@@ -603,6 +612,7 @@ async function loadSessionList() {
 
 async function viewSessionDetail(sessionId) {
   const dialog = document.getElementById("session-detail-dialog");
+  dialog.dataset.sessionId = sessionId;
   try {
     const res = await api("GET", `/sessions/${sessionId}`);
     if (res.status === 200) {
@@ -656,6 +666,37 @@ async function viewSessionDetail(sessionId) {
     }
   } catch (err) {
     console.warn("Failed to load session detail:", err);
+  }
+}
+
+// --- Download session history ---
+
+async function downloadSessionHistory(sessionId) {
+  try {
+    const token = getToken();
+    const res = await fetch(`/api/sessions/${sessionId}/download`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      clearSession();
+      window.location.href = "/login";
+      return;
+    }
+    if (!res.ok) {
+      console.warn("Download failed:", res.status);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `session_${sessionId}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.warn("Failed to download session history:", err);
   }
 }
 

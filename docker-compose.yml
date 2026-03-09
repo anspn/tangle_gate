@@ -23,6 +23,9 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}"
       # Default: IOTA testnet (override with IOTA_NODE_URL in .env for local node)
       IOTA_NODE_URL: "${IOTA_NODE_URL:-https://api.testnet.iota.cafe}"
+    networks:
+      - iotanet
+    dns: 1.1.1.1
     ports:
       - "${PORT:-4000}:4000"
     restart: unless-stopped
@@ -42,6 +45,8 @@ services:
   # ---------------------------------------------------------------------------
   ttyd:
     image: tsl0922/ttyd:latest
+    networks:
+      - iotanet
     container_name: iota_ttyd
     # Create the pending directory with world-writable permissions so the
     # Elixir app (non-root "iota" user) can write pending session files.
@@ -64,3 +69,12 @@ services:
 
 volumes:
   session_data:
+
+networks:
+  iotanet:
+    name: iota_network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.150.0/24
+          gateway: 192.168.150.1

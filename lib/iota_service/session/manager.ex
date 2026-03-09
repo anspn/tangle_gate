@@ -123,6 +123,27 @@ defmodule IotaService.Session.Manager do
     GenServer.call(__MODULE__, :stats)
   end
 
+  @doc """
+  Get the downloadable command history for a session.
+
+  Returns the session document (the same JSON that was hashed for notarization)
+  as a binary, or `:not_found` / `{:error, reason}`.
+
+  The returned document includes session metadata, the full command list, and
+  the notarization hash, making it a self-contained audit artifact.
+  """
+  @spec get_session_history(String.t()) :: {:ok, binary(), map()} | :not_found
+  def get_session_history(session_id) when is_binary(session_id) do
+    case :ets.lookup(@table, session_id) do
+      [{^session_id, session}] ->
+        document = build_download_document(session)
+        {:ok, Jason.encode!(document, pretty: true), document}
+
+      [] ->
+        :not_found
+    end
+  end
+
   # ============================================================================
   # Server Callbacks
   # ============================================================================
@@ -329,13 +350,17 @@ defmodule IotaService.Session.Manager do
 
   @doc false
   defp read_session_history(session_id) do
+    # The audit log is the authoritative, tamper-proof record.
+    # It is written by the DEBUG trap in session_shell.sh and has
+    # chattr +a (append-only) while the shell is running.
+    audit_path = Path.join([sessions_dir(), session_id, "audit.log"])
     history_path = Path.join([sessions_dir(), session_id, "history"])
 
-    # Wait briefly for the bash EXIT trap to flush history after the WebSocket
+    # Wait briefly for the bash EXIT trap to flush after the WebSocket
     # disconnects. The JS side also waits ~1 s, but belt-and-suspenders.
     Process.sleep(500)
 
-    case read_history_file(history_path) do
+    case read_audit_log(audit_path) do
       {commands, count} when count > 0 ->
         {commands, count}
 
@@ -343,16 +368,57 @@ defmodule IotaService.Session.Manager do
         # Retry once after a longer delay (race condition with shell exit)
         Process.sleep(1_000)
 
-        case read_history_file(history_path) do
+        case read_audit_log(audit_path) do
           {commands, count} when count > 0 ->
             {commands, count}
 
           _ ->
-            # Fallback: if the pending-file handoff failed, the shell would have
-            # generated its own session_id. The shell writes that id to a
-            # "current" pointer file; try reading from there.
-            fallback_read_history(session_id)
+            # Fallback: try the bash HISTFILE (less reliable but better than nothing)
+            Logger.debug("No audit log for session #{session_id}, trying HISTFILE fallback")
+
+            case read_history_file(history_path) do
+              {commands, count} when count > 0 ->
+                {commands, count}
+
+              _ ->
+                # Final fallback: if the pending-file handoff failed, the shell
+                # generated its own session_id. Check the "current" pointer.
+                fallback_read_history(session_id)
+            end
         end
+    end
+  end
+
+  # Read and parse the tamper-proof audit log.
+  # Format: ISO-timestamp\tsequence\tcommand
+  defp read_audit_log(path) do
+    case File.read(path) do
+      {:ok, content} when byte_size(content) > 0 ->
+        commands =
+          content
+          |> String.split("\n", trim: true)
+          |> Enum.map(&parse_audit_line/1)
+          |> Enum.reject(&is_nil/1)
+
+        {commands, length(commands)}
+
+      {:ok, _empty} ->
+        {[], 0}
+
+      {:error, reason} ->
+        Logger.debug("Could not read audit log at #{path}: #{inspect(reason)}")
+        {[], 0}
+    end
+  end
+
+  # Parse an audit log line: "2026-02-28T12:34:56Z\t1\tls -la"
+  defp parse_audit_line(line) do
+    case String.split(line, "\t", parts: 3) do
+      [timestamp, _seq, command] when command != "" ->
+        %{timestamp: String.trim(timestamp), command: String.trim(command)}
+
+      _ ->
+        nil
     end
   end
 
@@ -447,6 +513,27 @@ defmodule IotaService.Session.Manager do
     }
   end
 
+  # Build the downloadable document (includes notarization metadata).
+  defp build_download_document(session) do
+    %{
+      type: "tty_session_recording",
+      version: "1.0",
+      session_id: session.session_id,
+      did: session.did,
+      user_id: session.user_id,
+      started_at: if(session.started_at, do: DateTime.to_iso8601(session.started_at)),
+      ended_at: if(session.ended_at, do: DateTime.to_iso8601(session.ended_at)),
+      status: to_string(session.status),
+      command_count: session.command_count,
+      commands: session.commands || [],
+      notarization: %{
+        hash: session.notarization_hash,
+        on_chain_id: session.on_chain_id,
+        error: session.error
+      }
+    }
+  end
+
   # ============================================================================
   # Private — On-chain Notarization
   # ============================================================================
@@ -521,6 +608,7 @@ defmodule IotaService.Session.Manager do
       ended_at: if(session.ended_at, do: DateTime.to_iso8601(session.ended_at)),
       status: to_string(session.status),
       command_count: session.command_count,
+      commands: session.commands || [],
       notarization_hash: session.notarization_hash,
       on_chain_id: session.on_chain_id,
       error: session.error
@@ -563,6 +651,14 @@ defmodule IotaService.Session.Manager do
   end
 
   defp deserialize_session(data) do
+    commands =
+      (data["commands"] || [])
+      |> Enum.map(fn
+        %{"timestamp" => ts, "command" => cmd} -> %{timestamp: ts, command: cmd}
+        %{"command" => cmd} -> %{command: cmd}
+        other when is_map(other) -> %{command: Map.get(other, "command", "")}
+      end)
+
     %{
       session_id: data["session_id"],
       did: data["did"],
@@ -571,7 +667,7 @@ defmodule IotaService.Session.Manager do
       ended_at: parse_datetime(data["ended_at"]),
       status: parse_status(data["status"]),
       command_count: data["command_count"] || 0,
-      commands: [],
+      commands: commands,
       notarization_hash: data["notarization_hash"],
       notarization_payload: nil,
       on_chain_id: data["on_chain_id"],

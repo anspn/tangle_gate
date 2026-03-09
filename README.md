@@ -10,6 +10,7 @@ management and data notarization.
 - **Supervised Architecture**: Fault-tolerant supervision tree
 - **NIF Integration**: Uses Rust NIFs for cryptographic operations
 - **Web Portal**: User portal with DID-gated terminal access via ttyd
+- **Session Recording**: Tamper-proof TTY session recording with downloadable audit logs
 - **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal service
 
 
@@ -138,7 +139,7 @@ MIX_ENV=local mix test
 
 ## TODO
 
-- **lib/iota_service/session/manager.ex** (L602) — Change the priv_dir location storage to a database or more robust storage solution
+- **lib/iota_service/session/manager.ex** (L698) — Change the priv_dir location storage to a database or more robust storage solution
 - **lib/iota_service/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
 
 

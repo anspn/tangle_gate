@@ -119,6 +119,7 @@
         <pre id="detail-commands" class="result-box" style="max-height:300px; overflow-y:auto;"></pre>
       </div>
       <footer>
+        <button id="btn-download-session" class="outline" style="width:auto;">Download History</button>
         <button id="btn-close-session-detail-footer" class="secondary">Close</button>
       </footer>
     </article>

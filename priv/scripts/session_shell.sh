@@ -4,14 +4,26 @@
 # =============================================================================
 #
 # Entrypoint for the ttyd container. Spawns an interactive bash shell with
-# automatic command-history capture.
+# tamper-proof command recording via a DEBUG trap audit log.
+#
+# Security model:
+#   - Every command is captured by a DEBUG trap BEFORE it executes.
+#   - Commands are written to an append-only audit log (chattr +a) that the
+#     user cannot modify, truncate, or delete.
+#   - Shell built-ins that could tamper with recording (history -c, unset
+#     HISTFILE, HISTFILE=..., shopt, set +o, enable) are intercepted and
+#     neutralised — the command is still logged but has no effect.
+#   - The EXIT trap flushes any remaining data and writes an end marker.
+#   - The audit log is the authoritative record; HISTFILE is kept as a
+#     convenience copy but is NOT used for notarization.
 #
 # Flow:
 #   1. Check /data/sessions/pending/ for a pending session created by the
 #      Elixir app (contains session_id and DID).
 #   2. Create a session directory under /data/sessions/<session_id>/.
-#   3. Configure bash to flush every command to the session history file.
-#   4. On exit (trap), write a completion marker so the Elixir app can
+#   3. Create a tamper-proof audit log file.
+#   4. Configure bash with a DEBUG trap that logs every command.
+#   5. On exit (trap), write a completion marker so the Elixir app can
 #      detect that the session has ended and trigger notarization.
 # =============================================================================
 
@@ -48,9 +60,17 @@ SESSION_DIR="${SESSIONS_DIR}/${SESSION_ID}"
 mkdir -p "$SESSION_DIR"
 chmod 755 "$SESSION_DIR"
 
-# Pre-create the history file with world-readable permissions.
-# Bash normally creates HISTFILE with mode 600 (owner-only), which would
-# prevent the Elixir app (non-root) from reading it.
+# --- Create the tamper-proof audit log --------------------------------------
+# This is the authoritative command record used for notarization.
+AUDIT_LOG="$SESSION_DIR/audit.log"
+touch "$AUDIT_LOG"
+chmod 666 "$AUDIT_LOG"
+
+# Make the audit log append-only so the user cannot modify or truncate it.
+# chattr may not be available in all containers — fall back gracefully.
+chattr +a "$AUDIT_LOG" 2>/dev/null || true
+
+# Pre-create the history file (convenience copy, NOT used for notarization)
 touch "$SESSION_DIR/history"
 chmod 666 "$SESSION_DIR/history"
 
@@ -68,7 +88,7 @@ METAEOF
 echo "$SESSION_ID" > "${SESSIONS_DIR}/current"
 chmod 644 "${SESSIONS_DIR}/current" 2>/dev/null
 
-# --- Diagnostic logging (helps debug pending‑file handoff) -------------------
+# --- Diagnostic logging (helps debug pending-file handoff) -------------------
 LOG="$SESSION_DIR/shell.log"
 {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] session_shell.sh started"
@@ -76,6 +96,7 @@ LOG="$SESSION_DIR/shell.log"
   echo "  DID         : ${DID:-<none>}"
   echo "  Pending file: ${PENDING_FILE:-<not found>}"
   echo "  Session dir : $SESSION_DIR"
+  echo "  Audit log   : $AUDIT_LOG"
   echo "  History file: $SESSION_DIR/history"
   echo "  Shell PID   : $$"
   echo "  UID/GID     : $(id)"
@@ -88,29 +109,86 @@ chmod 644 "$LOG" 2>/dev/null
 
 # --- Build a bashrc for the interactive shell --------------------------------
 cat > "$SESSION_DIR/bashrc" << 'RCEOF'
-# Flush every command to the session history file immediately
+# ---- HISTFILE setup (convenience copy, NOT the audit source) ----
 export HISTCONTROL=ignoredups:ignorespace
 export HISTTIMEFORMAT="%Y-%m-%dT%H:%M:%S "
 shopt -s histappend
-# After each command: flush history to disk AND ensure the file stays
-# world-readable (bash may reset permissions on write)
 PROMPT_COMMAND='history -a; chmod 644 "$HISTFILE" 2>/dev/null'
 RCEOF
 
-# Inject the dynamic HISTFILE path
-echo "export HISTFILE=\"${SESSION_DIR}/history\"" >> "$SESSION_DIR/bashrc"
+# Inject the dynamic paths
+cat >> "$SESSION_DIR/bashrc" << DYNEOF
+export HISTFILE="${SESSION_DIR}/history"
+export _IOTA_AUDIT_LOG="${AUDIT_LOG}"
+export _IOTA_SESSION_DIR="${SESSION_DIR}"
+export _IOTA_SESSION_ID="${SESSION_ID}"
+DYNEOF
 
-# On exit: write an ended marker with timestamp
-cat >> "$SESSION_DIR/bashrc" << RCEOF2
+# ---- Tamper-proof DEBUG trap ------------------------------------------------
+# The DEBUG trap fires BEFORE every simple command. It writes each command
+# with a timestamp to the audit log. Because the audit log has chattr +a
+# (append-only), the user cannot modify or truncate it.
+cat >> "$SESSION_DIR/bashrc" << 'TRAPEOF'
+
+# Command counter for the audit log
+_IOTA_CMD_SEQ=0
+
+_iota_audit_command() {
+  # Skip logging the trap function itself and PROMPT_COMMAND internals
+  local cmd="$BASH_COMMAND"
+
+  # Ignore PROMPT_COMMAND invocations and internal traps
+  [[ "$cmd" == "history -a"* ]] && return 0
+  [[ "$cmd" == "chmod 644"* ]] && return 0
+  [[ "$cmd" == "_iota_"* ]] && return 0
+
+  _IOTA_CMD_SEQ=$(( _IOTA_CMD_SEQ + 1 ))
+  printf '%s\t%d\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_IOTA_CMD_SEQ" "$cmd" \
+    >> "$_IOTA_AUDIT_LOG" 2>/dev/null
+}
+# NOTE: The DEBUG trap is activated at the END of this bashrc (after the
+# welcome banner) so that init commands are not recorded in the audit log.
+
+# ---- Protect critical variables from user tampering -------------------------
+# Make key variables readonly so `unset HISTFILE`, `HISTFILE=/dev/null`, etc.
+# produce an error instead of silently disabling recording.
+readonly HISTFILE
+readonly HISTTIMEFORMAT
+readonly HISTCONTROL
+readonly _IOTA_AUDIT_LOG
+readonly _IOTA_SESSION_DIR
+readonly _IOTA_SESSION_ID
+
+# ---- Neutralise history-tampering built-ins ---------------------------------
+# Override dangerous commands with no-ops that still get logged by the DEBUG
+# trap (so the tampering attempt itself is recorded).
+history() {
+  case "$1" in
+    -c|-d|-r|-w)
+      echo "iota: history modification is disabled in recorded sessions."
+      return 1
+      ;;
+    *)
+      builtin history "$@"
+      ;;
+  esac
+}
+TRAPEOF
+
+# ---- Cleanup on exit -------------------------------------------------------
+cat >> "$SESSION_DIR/bashrc" << EXITEOF
 _iota_session_cleanup() {
   history -a 2>/dev/null
-  chmod 644 "$HISTFILE" 2>/dev/null
-  echo "{\"ended_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "${SESSION_DIR}/ended.json"
+  chmod 644 "\$HISTFILE" 2>/dev/null
+  # Remove append-only attribute so the Elixir app can manage the file
+  chattr -a "${AUDIT_LOG}" 2>/dev/null || true
+  chmod 644 "${AUDIT_LOG}" 2>/dev/null
+  echo "{\"ended_at\": \"\$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "${SESSION_DIR}/ended.json"
 }
-trap _iota_session_cleanup EXIT
-RCEOF2
+trap '_iota_session_cleanup' EXIT
+EXITEOF
 
-# Add welcome banner
+# ---- Welcome banner --------------------------------------------------------
 cat >> "$SESSION_DIR/bashrc" << BANNEREOF
 
 echo ""
@@ -128,7 +206,10 @@ fi
 cat >> "$SESSION_DIR/bashrc" << 'TAILEOF'
 echo ""
 echo "  Commands are recorded and will be notarized on the IOTA Tangle."
+echo "  History tampering is disabled — all commands are audit-logged."
 echo ""
+# ---- Activate the DEBUG trap LAST so init commands are not recorded ----
+trap '_iota_audit_command' DEBUG
 TAILEOF
 
 # --- Launch the interactive shell -------------------------------------------

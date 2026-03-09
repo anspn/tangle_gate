@@ -6,10 +6,11 @@ defmodule IotaService.Web.API.SessionHandler do
 
   ## Endpoints
 
-  - `POST   /api/sessions`           — Start a new recording session
-  - `POST   /api/sessions/:id/end`   — End a session (triggers notarization)
-  - `GET    /api/sessions`           — List sessions (admin: all, user: own)
-  - `GET    /api/sessions/:id`       — Get session details
+  - `POST   /api/sessions`              — Start a new recording session
+  - `POST   /api/sessions/:id/end`      — End a session (triggers notarization)
+  - `GET    /api/sessions`              — List sessions (admin: all, user: own)
+  - `GET    /api/sessions/:id`          — Get session details
+  - `GET    /api/sessions/:id/download` — Download session history as JSON file
   """
 
   use Plug.Router
@@ -188,6 +189,48 @@ defmodule IotaService.Web.API.SessionHandler do
     else
       stats = Manager.stats()
       Helpers.json(conn, 200, stats)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # GET /api/sessions/:id/download — Download session history as JSON file
+  # ---------------------------------------------------------------------------
+  get "/:session_id/download" do
+    user = conn.assigns[:current_user]
+
+    case Manager.get_session(session_id) do
+      {:ok, session} ->
+        if user.role == "admin" || session.user_id == user.id do
+          case Manager.get_session_history(session_id) do
+            {:ok, json_binary, _document} ->
+              filename = "session_#{session_id}.json"
+
+              conn
+              |> put_resp_content_type("application/json")
+              |> put_resp_header(
+                "content-disposition",
+                "attachment; filename=\"#{filename}\""
+              )
+              |> send_resp(200, json_binary)
+
+            :not_found ->
+              Helpers.json(conn, 404, %{
+                error: "not_found",
+                message: "Session not found: #{session_id}"
+              })
+          end
+        else
+          Helpers.json(conn, 403, %{
+            error: "forbidden",
+            message: "You can only download your own sessions"
+          })
+        end
+
+      :not_found ->
+        Helpers.json(conn, 404, %{
+          error: "not_found",
+          message: "Session not found: #{session_id}"
+        })
     end
   end
 
