@@ -4,7 +4,7 @@ defmodule IotaService.MixProject do
   def project do
     [
       app: :iota_service,
-      version: "0.7.1",
+      version: "0.7.2",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
