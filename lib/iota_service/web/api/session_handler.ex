@@ -202,7 +202,7 @@ defmodule IotaService.Web.API.SessionHandler do
       {:ok, session} ->
         if user.role == "admin" || session.user_id == user.id do
           case Manager.get_session_history(session_id) do
-            {:ok, json_binary, _document} ->
+            {:ok, json_binary} ->
               filename = "session_#{session_id}.json"
 
               conn
@@ -212,6 +212,12 @@ defmodule IotaService.Web.API.SessionHandler do
                 "attachment; filename=\"#{filename}\""
               )
               |> send_resp(200, json_binary)
+
+            {:error, :no_document} ->
+              Helpers.json(conn, 404, %{
+                error: "no_document",
+                message: "Session document not available (session may still be active)"
+              })
 
             :not_found ->
               Helpers.json(conn, 404, %{

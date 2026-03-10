@@ -26,7 +26,7 @@ defmodule IotaService.MixProject do
   defp deps do
     [
       # IOTA NIF library (fetched via git)
-      {:iota_nif, git: "https://github.com/anspn/iota_nif.git", tag: "v0.2.1"},
+      {:iota_nif, git: "https://github.com/anspn/iota_nif.git", tag: "v0.2.3"},
 
       # Web server & HTTP
       {:bandit, "~> 1.10"},

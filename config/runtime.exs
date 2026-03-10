@@ -27,8 +27,10 @@ if config_env() == :prod do
     ttyd_url: env.("TTYD_URL", "http://localhost:7681"),
     # TTY session recording — shared Docker volume with ttyd container
     sessions_dir: env.("SESSIONS_DIR", "/data/sessions"),
-    # Optional: IOTA secret key for on-chain notarization of session recordings
-    notarize_secret_key: env.("IOTA_NOTARIZE_SECRET_KEY", nil)
+    # IOTA Ed25519 secret key — used for on-chain notarization of sessions
+    # and as the default key for DID publishing when not provided per-call.
+    # IOTA_NOTARIZE_SECRET_KEY is a legacy alias; prefer IOTA_SECRET_KEY.
+    secret_key: env.("IOTA_SECRET_KEY", nil) || env.("IOTA_NOTARIZE_SECRET_KEY", nil)
 
   # --- Web server ---
   port =
@@ -56,6 +58,7 @@ if config_env() == :prod do
     end
 
   user_password = env.("USER_PASSWORD", nil)
+  verifier_password = env.("VERIFIER_PASSWORD", nil)
 
   config :iota_service, IotaService.Web.Auth,
     secret: secret,
@@ -77,6 +80,17 @@ if config_env() == :prod do
               email: env.("USER_EMAIL", "user@iota.local"),
               password: user_password,
               role: "user"
+            }
+          ],
+          else: []
+        ) ++
+        if(verifier_password,
+          do: [
+            %{
+              id: env.("VERIFIER_USER_ID", "usr_verifier"),
+              email: env.("VERIFIER_EMAIL", "verifier@iota.local"),
+              password: verifier_password,
+              role: "verifier"
             }
           ],
           else: []

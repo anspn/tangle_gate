@@ -11,6 +11,8 @@ management and data notarization.
 - **NIF Integration**: Uses Rust NIFs for cryptographic operations
 - **Web Portal**: User portal with DID-gated terminal access via ttyd
 - **Session Recording**: Tamper-proof TTY session recording with downloadable audit logs
+- **On-Chain Notarization**: Automatic publishing of session hashes to the IOTA Rebased ledger
+- **Verification**: Verifier role with on-chain notarization verification page
 - **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal service
 
 

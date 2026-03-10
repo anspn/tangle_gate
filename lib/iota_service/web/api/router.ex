@@ -49,6 +49,7 @@ defmodule IotaService.Web.API.Router do
   forward("/auth", to: IotaService.Web.API.AuthHandler)
   forward("/dids", to: IotaService.Web.API.IdentityHandler)
   forward("/sessions", to: IotaService.Web.API.SessionHandler)
+  forward("/verify", to: IotaService.Web.API.VerifyHandler)
 
   # --- Catch-all ------------------------------------------------------------
 

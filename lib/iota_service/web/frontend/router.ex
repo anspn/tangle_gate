@@ -82,6 +82,18 @@ defmodule IotaService.Web.Frontend.Router do
     |> send_resp(200, html)
   end
 
+  # --- Verify (notarization verification) ---------------------------------
+  get "/verify" do
+    html =
+      Templates.render(:verify, %{
+        login_required: login_required?()
+      })
+
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(200, html)
+  end
+
   # Catch-all: redirect unknown frontend routes to /
   match _ do
     conn

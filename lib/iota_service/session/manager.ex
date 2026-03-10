@@ -124,20 +124,26 @@ defmodule IotaService.Session.Manager do
   end
 
   @doc """
-  Get the downloadable command history for a session.
+  Get the downloadable session document — the exact JSON whose SHA-256 hash
+  was published on-chain.
 
-  Returns the session document (the same JSON that was hashed for notarization)
-  as a binary, or `:not_found` / `{:error, reason}`.
-
-  The returned document includes session metadata, the full command list, and
-  the notarization hash, making it a self-contained audit artifact.
+  Returns `{:ok, document_json_binary}` where the binary is the canonical
+  JSON string. Running `sha256sum` on it will match `notarization_hash`.
   """
-  @spec get_session_history(String.t()) :: {:ok, binary(), map()} | :not_found
+  @spec get_session_history(String.t()) :: {:ok, binary()} | :not_found
   def get_session_history(session_id) when is_binary(session_id) do
     case :ets.lookup(@table, session_id) do
-      [{^session_id, session}] ->
-        document = build_download_document(session)
-        {:ok, Jason.encode!(document, pretty: true), document}
+      [{^session_id, %{document_json: doc}}] when is_binary(doc) ->
+        {:ok, doc}
+
+      [{^session_id, _session}] ->
+        # document_json not in memory — try reading from disk
+        doc_path = Path.join([sessions_dir(), session_id, "document.json"])
+
+        case File.read(doc_path) do
+          {:ok, content} -> {:ok, content}
+          {:error, _} -> {:error, :no_document}
+        end
 
       [] ->
         :not_found
@@ -187,6 +193,7 @@ defmodule IotaService.Session.Manager do
       status: :active,
       command_count: 0,
       commands: [],
+      document_json: nil,
       notarization_hash: nil,
       notarization_payload: nil,
       on_chain_id: nil,
@@ -307,11 +314,16 @@ defmodule IotaService.Session.Manager do
         status: final_status,
         command_count: command_count,
         commands: commands,
+        document_json: document_json,
         notarization_hash: hash,
         notarization_payload: notarization_payload,
         on_chain_id: on_chain_id,
         error: error
     }
+
+    # Write the canonical document (the exact JSON that was hashed) to disk
+    doc_path = Path.join([sessions_dir(), session.session_id, "document.json"])
+    File.write(doc_path, document_json)
 
     # Update ETS
     :ets.insert(@table, {session.session_id, updated_session})
@@ -513,33 +525,12 @@ defmodule IotaService.Session.Manager do
     }
   end
 
-  # Build the downloadable document (includes notarization metadata).
-  defp build_download_document(session) do
-    %{
-      type: "tty_session_recording",
-      version: "1.0",
-      session_id: session.session_id,
-      did: session.did,
-      user_id: session.user_id,
-      started_at: if(session.started_at, do: DateTime.to_iso8601(session.started_at)),
-      ended_at: if(session.ended_at, do: DateTime.to_iso8601(session.ended_at)),
-      status: to_string(session.status),
-      command_count: session.command_count,
-      commands: session.commands || [],
-      notarization: %{
-        hash: session.notarization_hash,
-        on_chain_id: session.on_chain_id,
-        error: session.error
-      }
-    }
-  end
-
   # ============================================================================
   # Private — On-chain Notarization
   # ============================================================================
 
   defp maybe_publish_on_chain(hash, session) do
-    secret_key = Application.get_env(:iota_service, :notarize_secret_key)
+    secret_key = Application.get_env(:iota_service, :secret_key)
 
     if secret_key && secret_key != "" do
       description = "TTY session #{session.session_id} for DID #{session.did}"
@@ -554,7 +545,7 @@ defmodule IotaService.Session.Manager do
 
       IotaService.Notarization.Server.create_on_chain(opts)
     else
-      Logger.debug("No notarize_secret_key configured — skipping on-chain publication")
+      Logger.debug("No secret_key configured — skipping on-chain publication")
       :skip
     end
   end
@@ -659,6 +650,21 @@ defmodule IotaService.Session.Manager do
         other when is_map(other) -> %{command: Map.get(other, "command", "")}
       end)
 
+    # Try to load the canonical document JSON from disk
+    doc_json =
+      case data["session_id"] do
+        nil ->
+          nil
+
+        sid ->
+          doc_path = Path.join([sessions_dir(), sid, "document.json"])
+
+          case File.read(doc_path) do
+            {:ok, content} -> content
+            _ -> nil
+          end
+      end
+
     %{
       session_id: data["session_id"],
       did: data["did"],
@@ -668,6 +674,7 @@ defmodule IotaService.Session.Manager do
       status: parse_status(data["status"]),
       command_count: data["command_count"] || 0,
       commands: commands,
+      document_json: doc_json,
       notarization_hash: data["notarization_hash"],
       notarization_payload: nil,
       on_chain_id: data["on_chain_id"],

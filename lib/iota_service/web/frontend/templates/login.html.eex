@@ -19,7 +19,8 @@
       <button type="submit" id="btn-login">Sign in</button>
       <small>
         Dev accounts: <code>admin@iota.local / iota_admin_2026</code> (admin) &middot;
-        <code>user@iota.local / iota_user_2026</code> (user)
+        <code>user@iota.local / iota_user_2026</code> (user) &middot;
+        <code>verifier@iota.local / iota_verifier_2026</code> (verifier)
       </small>
     </form>
   </article>

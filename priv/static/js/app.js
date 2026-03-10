@@ -57,9 +57,10 @@ function requireAuth() {
 function requireRole(role) {
   if (!isLoginRequired()) return false;
   if (requireAuth()) return true;
-  if (getRole() !== role) {
+  const allowed = Array.isArray(role) ? role : [role];
+  if (!allowed.includes(getRole())) {
     // Wrong role — send to correct home
-    window.location.href = getRole() === "admin" ? "/" : "/portal";
+    window.location.href = roleLandingPage();
     return true;
   }
   return false;
@@ -67,7 +68,10 @@ function requireRole(role) {
 
 /** Return the landing page for the current role. */
 function roleLandingPage() {
-  return getRole() === "user" ? "/portal" : "/";
+  const r = getRole();
+  if (r === "user") return "/portal";
+  if (r === "verifier") return "/verify";
+  return "/";
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +138,9 @@ function updateNav() {
     insertNavLink(navLinks, authItem, "/", "Dashboard", "dashboard");
     insertNavLink(navLinks, authItem, "/identity", "Identity", "identity");
     insertNavLink(navLinks, authItem, "/sessions", "Sessions", "sessions");
+    insertNavLink(navLinks, authItem, "/verify", "Verify", "verify");
+  } else if (role === "verifier") {
+    insertNavLink(navLinks, authItem, "/verify", "Verify", "verify");
   } else if (role === "user") {
     insertNavLink(navLinks, authItem, "/portal", "Portal", "portal");
     insertNavLink(navLinks, authItem, "/sessions", "Sessions", "sessions");
@@ -201,7 +208,7 @@ function initLogin() {
           `Authenticated as ${res.data.user.email} (${res.data.user.role})`,
           "success"
         );
-        const dest = res.data.user.role === "user" ? "/portal" : "/";
+        const dest = res.data.user.role === "user" ? "/portal" : res.data.user.role === "verifier" ? "/verify" : "/";
         setTimeout(() => (window.location.href = dest), 600);
       } else {
         showNotice(
@@ -632,12 +639,8 @@ async function viewSessionDetail(sessionId) {
       document.getElementById("detail-hash").textContent = s.notarization_hash || "—";
 
       const onchainSection = document.getElementById("detail-onchain-section");
-      if (s.on_chain_id) {
-        onchainSection.style.display = "block";
-        document.getElementById("detail-onchain-id").textContent = s.on_chain_id;
-      } else {
-        onchainSection.style.display = "none";
-      }
+      onchainSection.style.display = "block";
+      document.getElementById("detail-onchain-id").textContent = s.on_chain_id || "undefined";
 
       const errorSection = document.getElementById("detail-error-section");
       if (s.error) {
@@ -725,6 +728,93 @@ function formatDate(isoStr) {
 }
 
 // ---------------------------------------------------------------------------
+// Verify page — on-chain notarization verification
+// ---------------------------------------------------------------------------
+
+function initVerify() {
+  const readBtn = document.getElementById("btn-verify-read");
+  if (!readBtn) return; // not on verify page
+  if (requireRole(["admin", "verifier"])) return;
+
+  let onChainHash = null;
+
+  readBtn.addEventListener("click", async () => {
+    const objectId = document.getElementById("verify-object-id").value.trim();
+    if (!objectId) return;
+
+    setLoading("btn-verify-read", true);
+    const errorEl = document.getElementById("verify-error");
+    const resultEl = document.getElementById("verify-onchain-result");
+    errorEl.style.display = "none";
+    resultEl.style.display = "none";
+
+    try {
+      const res = await api("GET", `/verify/${objectId}`);
+      if (res.status === 200) {
+        const d = res.data;
+        document.getElementById("verify-result-object-id").textContent = d.object_id || objectId;
+        const stateData = d.state_data || d.stateData || "";
+        document.getElementById("verify-result-state-data").textContent = stateData;
+        document.getElementById("verify-result-description").textContent = d.description || "—";
+        document.getElementById("verify-result-immutable").textContent =
+          d.immutable !== undefined ? (d.immutable ? "Yes" : "No") : "—";
+        onChainHash = stateData;
+        resultEl.style.display = "block";
+      } else {
+        errorEl.textContent = res.data.message || "Failed to read on-chain data";
+        errorEl.style.display = "block";
+      }
+    } catch (err) {
+      errorEl.textContent = "Request failed: " + err.message;
+      errorEl.style.display = "block";
+    }
+    setLoading("btn-verify-read", false);
+  });
+
+  // File input → populate textarea
+  const fileInput = document.getElementById("verify-file-input");
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const text = await file.text();
+    document.getElementById("verify-document-input").value = text;
+  });
+
+  // Compute hash & compare
+  const hashBtn = document.getElementById("btn-verify-hash");
+  hashBtn.addEventListener("click", async () => {
+    const data = document.getElementById("verify-document-input").value;
+    if (!data.trim()) return;
+
+    setLoading("btn-verify-hash", true);
+    try {
+      const res = await api("POST", "/verify/hash", { data });
+      if (res.status === 200) {
+        const computed = res.data.hash;
+        document.getElementById("verify-computed-hash").textContent = computed;
+        document.getElementById("verify-onchain-hash").textContent = onChainHash || "(read on-chain data first)";
+
+        const matchEl = document.getElementById("verify-match-result");
+        if (onChainHash && computed === onChainHash) {
+          matchEl.style.color = "rgb(5, 204, 147)";
+          matchEl.textContent = "✓ MATCH — Document hash matches on-chain data.";
+        } else if (onChainHash) {
+          matchEl.style.color = "#a04048";
+          matchEl.textContent = "✗ MISMATCH — Document hash does NOT match on-chain data.";
+        } else {
+          matchEl.style.color = "#6c757d";
+          matchEl.textContent = "Hash computed. Read on-chain data to compare.";
+        }
+        document.getElementById("verify-hash-result").style.display = "block";
+      }
+    } catch (err) {
+      console.warn("Hash computation failed:", err);
+    }
+    setLoading("btn-verify-hash", false);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
@@ -735,4 +825,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initIdentity();
   initPortal();
   initSessions();
+  initVerify();
 });
