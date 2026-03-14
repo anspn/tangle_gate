@@ -4,9 +4,13 @@ defmodule IotaService.Web.API.SessionHandler do
 
   All routes require JWT authentication (via `Authenticate` plug).
 
+  Session creation requires a Verifiable Presentation (VP) containing a
+  TangleGateAccessCredential. The VP is verified against the holder's
+  on-chain DID and the server's issuer DID before the session is started.
+
   ## Endpoints
 
-  - `POST   /api/sessions`              — Start a new recording session
+  - `POST   /api/sessions`              — Start a new recording session (VP required)
   - `POST   /api/sessions/:id/end`      — End a session (triggers notarization)
   - `GET    /api/sessions`              — List sessions (admin: all, user: own)
   - `GET    /api/sessions/:id`          — Get session details
@@ -17,6 +21,9 @@ defmodule IotaService.Web.API.SessionHandler do
 
   import Plug.Conn
 
+  alias IotaService.Credential.ChallengeCache
+  alias IotaService.Credential.Server, as: CredServer
+  alias IotaService.Credential.Verifier
   alias IotaService.Session.Manager
   alias IotaService.Web.API.Helpers
   alias IotaService.Web.Auth
@@ -72,36 +79,38 @@ defmodule IotaService.Web.API.SessionHandler do
   end
 
   # ---------------------------------------------------------------------------
-  # POST /api/sessions — Start a new recording session
+  # POST /api/sessions — Start a new recording session (VP required)
   # ---------------------------------------------------------------------------
   post "/" do
     params = conn.body_params || %{}
-    did = params["did"]
+    presentation_jwt = params["presentation_jwt"]
+    challenge = params["challenge"]
+    holder_did = params["holder_did"]
     user = conn.assigns[:current_user]
 
     cond do
-      is_nil(did) || did == "" ->
+      is_nil(presentation_jwt) || presentation_jwt == "" ->
         Helpers.json(conn, 400, %{
           error: "missing_parameter",
-          message: "Required parameter missing: did"
+          message:
+            "Required parameter missing: presentation_jwt. " <>
+              "Submit a Verifiable Presentation to start a session."
+        })
+
+      is_nil(challenge) || challenge == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: challenge"
+        })
+
+      is_nil(holder_did) || holder_did == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: holder_did"
         })
 
       true ->
-        case Manager.start_session(did, user.id) do
-          {:ok, session} ->
-            Helpers.json(conn, 201, %{
-              session_id: session.session_id,
-              did: session.did,
-              started_at: DateTime.to_iso8601(session.started_at),
-              status: to_string(session.status)
-            })
-
-          {:error, reason} ->
-            Helpers.json(conn, 500, %{
-              error: "session_error",
-              message: "Failed to start session: #{inspect(reason)}"
-            })
-        end
+        start_session_with_vp(conn, presentation_jwt, challenge, holder_did, user)
     end
   end
 
@@ -270,7 +279,117 @@ defmodule IotaService.Web.API.SessionHandler do
   end
 
   # ===========================================================================
-  # Private
+  # Private — VP-based session creation
+  # ===========================================================================
+
+  defp start_session_with_vp(conn, presentation_jwt, challenge, holder_did, user) do
+    # 1. Consume the challenge (single-use)
+    case ChallengeCache.consume_challenge(challenge) do
+      :not_found ->
+        Helpers.json(conn, 401, %{
+          error: "invalid_challenge",
+          message: "Challenge not found or already used"
+        })
+
+      :expired ->
+        Helpers.json(conn, 401, %{
+          error: "challenge_expired",
+          message: "Challenge has expired"
+        })
+
+      :ok ->
+        # 2. Get server's issuer DID
+        case CredServer.server_did_info() do
+          {:error, :no_server_did} ->
+            Helpers.json(conn, 503, %{
+              error: "not_provisioned",
+              message: "Server DID not provisioned — cannot verify credentials"
+            })
+
+          {:ok, server_identity} ->
+            verify_vp_and_start_session(
+              conn,
+              presentation_jwt,
+              challenge,
+              holder_did,
+              user,
+              server_identity
+            )
+        end
+    end
+  end
+
+  defp verify_vp_and_start_session(
+         conn,
+         presentation_jwt,
+         challenge,
+         holder_did,
+         user,
+         server_identity
+       ) do
+    node_url = Application.get_env(:iota_service, :node_url, "https://api.testnet.iota.cafe")
+    identity_pkg_id = Application.get_env(:iota_service, :identity_pkg_id, "")
+
+    # 3. Resolve the holder's DID document on-chain
+    case Verifier.resolve_did_document(holder_did, node_url, identity_pkg_id) do
+      {:ok, holder_doc_json} ->
+        issuer_doc = server_identity.document
+
+        issuer_docs_json =
+          case Jason.decode(issuer_doc) do
+            {:ok, doc_map} -> Jason.encode!([doc_map])
+            {:error, _} -> "[#{issuer_doc}]"
+          end
+
+        # 4. Verify the VP using the independent Verifier
+        case Verifier.verify_presentation(
+               presentation_jwt,
+               holder_doc_json,
+               issuer_docs_json,
+               challenge
+             ) do
+          {:ok, %{"valid" => true}} ->
+            # 5. VP valid — start the session with the verified holder DID
+            case Manager.start_session(holder_did, user.id) do
+              {:ok, session} ->
+                Helpers.json(conn, 201, %{
+                  session_id: session.session_id,
+                  did: session.did,
+                  started_at: DateTime.to_iso8601(session.started_at),
+                  status: to_string(session.status),
+                  auth_method: "verifiable_presentation"
+                })
+
+              {:error, reason} ->
+                Helpers.json(conn, 500, %{
+                  error: "session_error",
+                  message: "VP verified but session creation failed: #{inspect(reason)}"
+                })
+            end
+
+          {:ok, %{"valid" => false}} ->
+            Helpers.json(conn, 401, %{
+              error: "invalid_presentation",
+              message: "Verifiable Presentation is not valid"
+            })
+
+          {:error, reason} ->
+            Helpers.json(conn, 401, %{
+              error: "verification_failed",
+              message: "VP verification failed: #{inspect(reason)}"
+            })
+        end
+
+      {:error, reason} ->
+        Helpers.json(conn, 422, %{
+          error: "did_resolution_failed",
+          message: "Could not resolve holder DID on-chain: #{inspect(reason)}"
+        })
+    end
+  end
+
+  # ===========================================================================
+  # Private — serialization
   # ===========================================================================
 
   defp serialize_session(session, opts \\ []) do

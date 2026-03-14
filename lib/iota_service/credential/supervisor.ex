@@ -3,6 +3,7 @@ defmodule IotaService.Credential.Supervisor do
   Supervisor for Credential domain services.
 
   Children:
+  - Credential.ChallengeCache: ETS-backed challenge nonce store for VP replay protection
   - Credential.Server: Handles VC/VP operations (create, verify)
   """
 
@@ -15,6 +16,10 @@ defmodule IotaService.Credential.Supervisor do
   @impl true
   def init(_opts) do
     children = [
+      # Challenge cache starts first — Server may need it
+      IotaService.Credential.ChallengeCache,
+
+      # Main VC/VP operations server
       IotaService.Credential.Server
     ]
 

@@ -12,6 +12,7 @@ defmodule IotaService.Application do
   │   ├── IotaService.Identity.Server  # GenServer for DID operations
   │   └── IotaService.Identity.Cache   # ETS-backed DID document cache
   ├── IotaService.Credential.Supervisor  # VC/VP services (one_for_one)
+  │   ├── IotaService.Credential.ChallengeCache  # ETS-backed challenge nonce store
   │   └── IotaService.Credential.Server  # GenServer for VC/VP operations
   ├── IotaService.Notarization.Supervisor  # Notarization services (one_for_one)
   │   ├── IotaService.Notarization.Server  # GenServer for notarization ops
@@ -113,6 +114,7 @@ defmodule IotaService.Application do
   defp ensure_mongo_indexes do
     if Application.get_env(:iota_service, :start_repo, true) do
       IotaService.Store.NotarizationStore.ensure_indexes()
+      IotaService.Store.CredentialStore.ensure_indexes()
     end
   rescue
     e ->

@@ -46,6 +46,7 @@ IotaService.Application (rest_for_one)
 │   ├── IotaService.Identity.Cache    # ETS-backed DID cache
 │   └── IotaService.Identity.Server   # DID operations
 ├── IotaService.Credential.Supervisor # (one_for_one)
+│   ├── IotaService.Credential.ChallengeCache  # ETS challenge nonce store
 │   └── IotaService.Credential.Server # VC/VP operations
 ├── IotaService.Notarization.Supervisor  # (one_for_one)
 │   ├── IotaService.Notarization.Queue   # Job queue
@@ -191,6 +192,7 @@ MIX_ENV=local mix test
 ## TODO
 
 - **lib/iota_service/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
+- **lib/iota_service/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
 
 
 ## License

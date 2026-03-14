@@ -36,6 +36,7 @@ defmodule IotaService do
   │   ├── Identity.Cache   - ETS cache for DIDs
   │   └── Identity.Server  - DID operations (local + ledger)
   ├── Credential.Supervisor - VC/VP services
+  │   ├── Credential.ChallengeCache - ETS challenge nonce store
   │   └── Credential.Server - Verifiable Credential & Presentation operations
   ├── Notarization.Supervisor
   │   ├── Notarization.Queue  - Job queue
@@ -143,6 +144,46 @@ defmodule IotaService do
   """
   @spec deactivate_did(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   defdelegate deactivate_did(did, opts), to: Identity.Server
+
+  # ============================================================================
+  # Credential API — Server DID & Issuance
+  # ============================================================================
+
+  @doc """
+  Get the server's DID identity information.
+
+  Returns `{:ok, identity}` with the server's DID, document, and fragment.
+  Returns `{:error, :no_server_did}` if not provisioned yet.
+  """
+  @spec server_did_info() :: {:ok, map()} | {:error, :no_server_did}
+  defdelegate server_did_info(), to: Credential.Server
+
+  @doc """
+  Provision the server's DID by publishing it on-chain.
+
+  One-time operation. Creates the server's permanent DID identity and
+  stores it in MongoDB.
+  """
+  @spec provision_server_did(keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate provision_server_did(opts \\ []), to: Credential.Server
+
+  @doc """
+  Issue a TangleGateAccessCredential to a holder.
+
+  Uses the server's DID as the issuer.
+
+  ## Parameters
+  - `holder_did` — The holder's DID string
+  - `claims` — Map of claims to include
+  - `credential_type` — (default: "TangleGateAccessCredential")
+  """
+  @spec issue_credential(String.t(), map(), String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate issue_credential(
+                holder_did,
+                claims,
+                credential_type \\ "TangleGateAccessCredential"
+              ),
+              to: Credential.Server
 
   # ============================================================================
   # Credential API — Verifiable Credentials
