@@ -11,6 +11,8 @@ defmodule IotaService.Application do
   ├── IotaService.Identity.Supervisor  # DID-related services (one_for_one)
   │   ├── IotaService.Identity.Server  # GenServer for DID operations
   │   └── IotaService.Identity.Cache   # ETS-backed DID document cache
+  ├── IotaService.Credential.Supervisor  # VC/VP services (one_for_one)
+  │   └── IotaService.Credential.Server  # GenServer for VC/VP operations
   ├── IotaService.Notarization.Supervisor  # Notarization services (one_for_one)
   │   ├── IotaService.Notarization.Server  # GenServer for notarization ops
   │   └── IotaService.Notarization.Queue   # Pending notarization queue
@@ -47,16 +49,21 @@ defmodule IotaService.Application do
         # 1. NIF Loader - must start first
         # If this crashes, all downstream services restart
         IotaService.NIF.Loader
-      ] ++ repo_children() ++ [
-        # 3. Identity Domain Supervisor
-        {IotaService.Identity.Supervisor, []},
+      ] ++
+        repo_children() ++
+        [
+          # 3. Identity Domain Supervisor
+          {IotaService.Identity.Supervisor, []},
 
-        # 4. Notarization Domain Supervisor
-        {IotaService.Notarization.Supervisor, []},
+          # 4. Credential Domain Supervisor (VC/VP operations)
+          {IotaService.Credential.Supervisor, []},
 
-        # 5. Session Recording Supervisor
-        {IotaService.Session.Supervisor, []}
-      ] ++ web_children()
+          # 5. Notarization Domain Supervisor
+          {IotaService.Notarization.Supervisor, []},
+
+          # 6. Session Recording Supervisor
+          {IotaService.Session.Supervisor, []}
+        ] ++ web_children()
 
     # rest_for_one: if NIF.Loader crashes, restart Identity and Notarization supervisors
     opts = [strategy: :rest_for_one, name: IotaService.Supervisor]
@@ -109,7 +116,9 @@ defmodule IotaService.Application do
     end
   rescue
     e ->
-      Logger.warning("MongoDB index creation failed: #{Exception.message(e)}. " <>
-        "Indexes can be created manually later.")
+      Logger.warning(
+        "MongoDB index creation failed: #{Exception.message(e)}. " <>
+          "Indexes can be created manually later."
+      )
   end
 end

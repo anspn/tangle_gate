@@ -6,6 +6,8 @@ management and data notarization.
 ## Features
 
 - **DID Generation**: Create IOTA DIDs with Ed25519 verification methods
+- **Verifiable Credentials**: Issue and verify W3C Verifiable Credentials as signed JWTs
+- **Verifiable Presentations**: Create and verify W3C Verifiable Presentations with challenge/expiry
 - **Notarization**: Timestamp and hash-anchor data for Tangle submission
 - **Supervised Architecture**: Fault-tolerant supervision tree
 - **NIF Integration**: Uses Rust NIFs for cryptographic operations
@@ -43,6 +45,8 @@ IotaService.Application (rest_for_one)
 ├── IotaService.Identity.Supervisor   # (one_for_one)
 │   ├── IotaService.Identity.Cache    # ETS-backed DID cache
 │   └── IotaService.Identity.Server   # DID operations
+├── IotaService.Credential.Supervisor # (one_for_one)
+│   └── IotaService.Credential.Server # VC/VP operations
 ├── IotaService.Notarization.Supervisor  # (one_for_one)
 │   ├── IotaService.Notarization.Queue   # Job queue
 │   └── IotaService.Notarization.Server  # Notarization operations
@@ -80,6 +84,44 @@ hash = IotaService.hash("data to hash")
 
 # Verify payload
 {:ok, result} = IotaService.verify_notarization(payload["payload_hex"])
+```
+
+### Verifiable Credentials
+
+```elixir
+# Issue a credential (server as issuer)
+{:ok, vc} = IotaService.create_credential(
+  issuer_doc_json,
+  holder_did,
+  "TangleGateAccessCredential",
+  Jason.encode!(%{"role" => "user", "email" => "alice@example.com"})
+)
+credential_jwt = vc["credential_jwt"]
+
+# Verify a credential
+{:ok, result} = IotaService.verify_credential(credential_jwt, issuer_doc_json)
+# result["valid"] => true
+```
+
+### Verifiable Presentations
+
+```elixir
+# Create a presentation (holder side)
+{:ok, vp} = IotaService.create_presentation(
+  holder_doc_json,
+  Jason.encode!([credential_jwt]),
+  "challenge-nonce",
+  600  # expires in 10 minutes
+)
+presentation_jwt = vp["presentation_jwt"]
+
+# Verify a presentation (verifier side)
+{:ok, result} = IotaService.verify_presentation(
+  presentation_jwt,
+  holder_doc_json,
+  Jason.encode!([Jason.decode!(issuer_doc_json)]),
+  "challenge-nonce"
+)
 ```
 
 ### Queue (Batch Processing)

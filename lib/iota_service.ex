@@ -4,6 +4,8 @@ defmodule IotaService do
 
   This module provides a high-level API for:
   - **Identity**: DID (Decentralized Identifier) generation, publishing, and resolution
+  - **Credentials**: W3C Verifiable Credentials issuance and verification
+  - **Presentations**: W3C Verifiable Presentations creation and verification
   - **Notarization**: Local payload creation and on-chain CRUD via the official IOTA notarization library
 
   ## Local Operations (no network required)
@@ -29,10 +31,12 @@ defmodule IotaService do
 
   ```
   IotaService.Application (rest_for_one)
-  ├── NIF.Loader           - Ensures Rust NIF is loaded (:iota_did_nif, :iota_notarization_nif)
+  ├── NIF.Loader           - Ensures Rust NIF is loaded (:iota_did_nif, :iota_notarization_nif, :iota_credential_nif)
   ├── Identity.Supervisor  - DID services
   │   ├── Identity.Cache   - ETS cache for DIDs
   │   └── Identity.Server  - DID operations (local + ledger)
+  ├── Credential.Supervisor - VC/VP services
+  │   └── Credential.Server - Verifiable Credential & Presentation operations
   ├── Notarization.Supervisor
   │   ├── Notarization.Queue  - Job queue
   │   └── Notarization.Server - Notarization operations (local + ledger CRUD)
@@ -41,6 +45,7 @@ defmodule IotaService do
   ```
   """
 
+  alias IotaService.Credential
   alias IotaService.Identity
   alias IotaService.Notarization
   alias IotaService.Session
@@ -138,6 +143,88 @@ defmodule IotaService do
   """
   @spec deactivate_did(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   defdelegate deactivate_did(did, opts), to: Identity.Server
+
+  # ============================================================================
+  # Credential API — Verifiable Credentials
+  # ============================================================================
+
+  @doc """
+  Create a Verifiable Credential (VC) as a signed JWT.
+
+  The issuer signs a credential containing claims about a subject (holder).
+
+  ## Parameters
+  - `issuer_doc_json` — The issuer's DID document as JSON string
+  - `holder_did` — The subject/holder's DID string
+  - `credential_type` — Credential type (e.g., "TangleGateAccessCredential")
+  - `claims_json` — JSON string of credential claims
+
+  ## Examples
+
+      claims = Jason.encode!(%{"role" => "user", "email" => "alice@example.com"})
+      {:ok, result} = IotaService.create_credential(issuer_doc, holder_did, "AccessCredential", claims)
+      credential_jwt = result["credential_jwt"]
+  """
+  @spec create_credential(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate create_credential(issuer_doc_json, holder_did, credential_type, claims_json),
+    to: Credential.Server
+
+  @doc """
+  Verify a Verifiable Credential JWT.
+
+  Validates the EdDSA signature, semantic structure, issuance date, and
+  expiration against the issuer's DID document.
+
+  ## Parameters
+  - `credential_jwt` — The credential JWT string
+  - `issuer_doc_json` — The issuer's DID document as JSON
+  """
+  @spec verify_credential(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate verify_credential(credential_jwt, issuer_doc_json), to: Credential.Server
+
+  # ============================================================================
+  # Credential API — Verifiable Presentations
+  # ============================================================================
+
+  @doc """
+  Create a Verifiable Presentation (VP) as a signed JWT.
+
+  The holder wraps one or more VC JWTs into a presentation, signs it with
+  their DID document, and includes a challenge for replay protection.
+
+  ## Parameters
+  - `holder_doc_json` — The holder's DID document as JSON
+  - `credential_jwts_json` — JSON array of credential JWT strings
+  - `challenge` — Nonce for replay protection (pass "" to omit)
+  - `expires_in_seconds` — Expiration in seconds from now (default: 600, 0 = no expiry)
+  """
+  @spec create_presentation(String.t(), String.t(), String.t(), non_neg_integer()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate create_presentation(
+                holder_doc_json,
+                credential_jwts_json,
+                challenge,
+                expires_in_seconds \\ 600
+              ),
+              to: Credential.Server
+
+  @doc """
+  Verify a Verifiable Presentation JWT and all contained VCs.
+
+  Validates the VP signature, challenge nonce, and each contained VC
+  against the corresponding issuer's DID document.
+
+  ## Parameters
+  - `presentation_jwt` — The presentation JWT string
+  - `holder_doc_json` — The holder's DID document as JSON
+  - `issuer_docs_json` — JSON array of issuer DID documents (one per VC)
+  - `challenge` — The expected challenge nonce (pass "" to skip)
+  """
+  @spec verify_presentation(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate verify_presentation(presentation_jwt, holder_doc_json, issuer_docs_json, challenge),
+    to: Credential.Server
 
   # ============================================================================
   # Notarization API — Local Operations

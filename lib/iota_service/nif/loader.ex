@@ -6,16 +6,17 @@ defmodule IotaService.NIF.Loader do
   Acts as a gate in the supervision tree - if NIF loading fails,
   downstream services won't start.
 
-  The NIF exposes two public Erlang modules:
+  The NIF exposes three public Erlang modules:
   - `:iota_did_nif` — DID operations (local + ledger)
   - `:iota_notarization_nif` — Notarization operations (local + ledger)
+  - `:iota_credential_nif` — Verifiable Credential & Presentation operations
   """
 
   use GenServer
 
   require Logger
 
-  @nif_modules [:iota_did_nif, :iota_notarization_nif]
+  @nif_modules [:iota_did_nif, :iota_notarization_nif, :iota_credential_nif]
 
   # Client API
 
@@ -91,6 +92,8 @@ defmodule IotaService.NIF.Loader do
       false = :iota_did_nif.is_valid_iota_did("not_a_did")
       # Verify notarization NIF is loaded
       true = is_binary(:iota_notarization_nif.hash_data("test"))
+      # Verify credential NIF is loaded
+      true = is_atom(:iota_credential_nif.module_info(:module))
       :ok
     catch
       :error, :undef -> {:error, :nif_not_loaded}
