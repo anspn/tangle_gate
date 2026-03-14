@@ -214,17 +214,14 @@ defmodule IotaService.Web.API.IdentityHandler do
     end
   end
 
-  defp create_published_did(params) do
-    secret_key = params["secret_key"]
+  defp create_published_did(_params) do
+    secret_key = Application.get_env(:iota_service, :secret_key)
 
     unless secret_key && secret_key != "" do
       {:error, {:missing_option, :secret_key}}
     else
       opts =
         [secret_key: secret_key]
-        |> maybe_put(:node_url, params["node_url"])
-        |> maybe_put(:identity_pkg_id, params["identity_pkg_id"])
-        # Fall back to Application env if client didn't supply
         |> maybe_put(:node_url, Application.get_env(:iota_service, :node_url))
         |> maybe_put(:identity_pkg_id, Application.get_env(:iota_service, :identity_pkg_id))
 
@@ -262,16 +259,14 @@ defmodule IotaService.Web.API.IdentityHandler do
     end
   end
 
-  defp deactivate_did(did, params) do
-    secret_key = params["secret_key"]
+  defp deactivate_did(did, _params) do
+    secret_key = Application.get_env(:iota_service, :secret_key)
 
     unless secret_key && secret_key != "" do
       {:error, {:missing_option, :secret_key}}
     else
       opts =
         [secret_key: secret_key]
-        |> maybe_put(:node_url, params["node_url"])
-        |> maybe_put(:identity_pkg_id, params["identity_pkg_id"])
         |> maybe_put(:node_url, Application.get_env(:iota_service, :node_url))
         |> maybe_put(:identity_pkg_id, Application.get_env(:iota_service, :identity_pkg_id))
 

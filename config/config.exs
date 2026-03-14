@@ -28,6 +28,19 @@ config :iota_service, IotaService.Web.Auth,
     %{id: "usr_verifier", email: "verifier@iota.local", password: "iota_verifier_2026", role: "verifier"}
   ]
 
+# MongoDB
+config :iota_service, IotaService.Store.Repo,
+  url: "mongodb://localhost:27017/iota_service",
+  pool_size: 5
+
+# Vault — disabled by default in dev (secrets come from config/env)
+config :iota_service, IotaService.Vault.Client,
+  enabled: false,
+  addr: "http://localhost:8200",
+  token: "dev-root-token",
+  mount: "secret",
+  secret_path: "iota_service"
+
 # Joken default signer (not used — we configure our own in Web.Auth)
 config :joken, default_signer: nil
 

@@ -13,7 +13,7 @@ management and data notarization.
 - **Session Recording**: Tamper-proof TTY session recording with downloadable audit logs
 - **On-Chain Notarization**: Automatic publishing of session hashes to the IOTA Rebased ledger
 - **Verification**: Verifier role with on-chain notarization verification page
-- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal service
+- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal, MongoDB, and Vault services
 
 
 ## Quick Start
@@ -38,13 +38,16 @@ true = IotaService.valid_did?(did_result.did)
 
 ```
 IotaService.Application (rest_for_one)
-├── IotaService.NIF.Loader           # Ensures NIF is loaded
-├── IotaService.Identity.Supervisor  # (one_for_one)
-│   ├── IotaService.Identity.Cache   # ETS-backed DID cache
-│   └── IotaService.Identity.Server  # DID operations
-└── IotaService.Notarization.Supervisor  # (one_for_one)
-    ├── IotaService.Notarization.Queue   # Job queue
-    └── IotaService.Notarization.Server  # Notarization operations
+├── IotaService.NIF.Loader            # Ensures NIF is loaded
+├── IotaService.Store.Repo            # MongoDB connection pool
+├── IotaService.Identity.Supervisor   # (one_for_one)
+│   ├── IotaService.Identity.Cache    # ETS-backed DID cache
+│   └── IotaService.Identity.Server   # DID operations
+├── IotaService.Notarization.Supervisor  # (one_for_one)
+│   ├── IotaService.Notarization.Queue   # Job queue
+│   └── IotaService.Notarization.Server  # Notarization operations
+└── IotaService.Session.Supervisor    # (one_for_one)
+    └── IotaService.Session.Manager   # Session recording & notarization
 ```
 
 ## API Reference
@@ -111,12 +114,16 @@ docker compose up -d --build
 | Service | Port | Purpose |
 |---------|------|---------|
 | `app` | 4000 | IOTA Service (Elixir) |
+| `mongo` | 27017 | MongoDB — document store for sessions & notarization records |
+| `vault` | 8200 | HashiCorp Vault — secrets management (IOTA private keys) |
 | `ttyd` | 7681 | Web-based terminal — embedded in portal after DID validation |
 
 ### Required Environment Variables
 
 - `SECRET_KEY_BASE` — JWT signing secret (`openssl rand -base64 64`)
 - `ADMIN_PASSWORD` — Admin user password
+- `MONGO_PASSWORD` — MongoDB root password
+- `VAULT_ROOT_TOKEN` — Vault dev server root token
 
 See [.env.example](.env.example) for the full list.
 
@@ -141,7 +148,6 @@ MIX_ENV=local mix test
 
 ## TODO
 
-- **lib/iota_service/session/manager.ex** (L698) — Change the priv_dir location storage to a database or more robust storage solution
 - **lib/iota_service/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
 
 

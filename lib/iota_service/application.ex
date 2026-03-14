@@ -7,6 +7,7 @@ defmodule IotaService.Application do
   ```
   IotaService.Application (rest_for_one)
   ├── IotaService.NIF.Loader          # Ensures NIF is loaded before other services
+  ├── IotaService.Store.Repo           # MongoDB connection pool
   ├── IotaService.Identity.Supervisor  # DID-related services (one_for_one)
   │   ├── IotaService.Identity.Server  # GenServer for DID operations
   │   └── IotaService.Identity.Cache   # ETS-backed DID document cache
@@ -25,6 +26,7 @@ defmodule IotaService.Application do
     since all services depend on the NIF being loaded.
   - **one_for_one** for domain supervisors: Independent services within a domain
     should not affect each other.
+  - MongoDB pool starts early so all domain services can persist data.
   - Bandit starts last so all services are ready before accepting HTTP.
   """
 
@@ -36,19 +38,23 @@ defmodule IotaService.Application do
   def start(_type, _args) do
     Logger.info("Starting IOTA Service application")
 
+    # Load secrets from Vault before building the supervision tree
+    # so config values are available to child processes.
+    IotaService.Vault.Client.load_secrets()
+
     children =
       [
         # 1. NIF Loader - must start first
         # If this crashes, all downstream services restart
-        IotaService.NIF.Loader,
-
-        # 2. Identity Domain Supervisor
+        IotaService.NIF.Loader
+      ] ++ repo_children() ++ [
+        # 3. Identity Domain Supervisor
         {IotaService.Identity.Supervisor, []},
 
-        # 3. Notarization Domain Supervisor
+        # 4. Notarization Domain Supervisor
         {IotaService.Notarization.Supervisor, []},
 
-        # 4. Session Recording Supervisor
+        # 5. Session Recording Supervisor
         {IotaService.Session.Supervisor, []}
       ] ++ web_children()
 
@@ -57,6 +63,8 @@ defmodule IotaService.Application do
 
     case Supervisor.start_link(children, opts) do
       {:ok, pid} ->
+        # Ensure MongoDB indexes after the pool is running
+        ensure_mongo_indexes()
         Logger.info("IOTA Service started successfully")
         {:ok, pid}
 
@@ -72,6 +80,15 @@ defmodule IotaService.Application do
     :ok
   end
 
+  # Start MongoDB pool unless disabled (e.g. in test env)
+  defp repo_children do
+    if Application.get_env(:iota_service, :start_repo, true) do
+      [IotaService.Store.Repo]
+    else
+      []
+    end
+  end
+
   # Start Bandit HTTP server unless disabled (e.g. in test env)
   defp web_children do
     if Application.get_env(:iota_service, :start_web, true) do
@@ -82,5 +99,17 @@ defmodule IotaService.Application do
     else
       []
     end
+  end
+
+  # Create MongoDB indexes after the pool is live. Errors are logged but
+  # don't prevent the application from starting (indexes may already exist).
+  defp ensure_mongo_indexes do
+    if Application.get_env(:iota_service, :start_repo, true) do
+      IotaService.Store.NotarizationStore.ensure_indexes()
+    end
+  rescue
+    e ->
+      Logger.warning("MongoDB index creation failed: #{Exception.message(e)}. " <>
+        "Indexes can be created manually later.")
   end
 end

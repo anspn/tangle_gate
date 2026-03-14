@@ -17,18 +17,7 @@
       </label>
 
       <div id="ledger-params">
-        <label>
-          Secret Key
-          <input type="password" id="did-secret-key"
-                 placeholder="iotaprivkey1... or base64 Ed25519 key" required />
-          <small>Your Ed25519 private key (Bech32 or Base64). Never leaves the browser → server → NIF pipeline.</small>
-        </label>
-        <label>
-          Identity Package ID
-          <input type="text" id="did-identity-pkg-id"
-                 placeholder="0x... (empty for auto-discovery)" />
-          <small>Move package ObjectID. Leave empty for official networks (auto-discovery).</small>
-        </label>
+        <small>The server's configured secret key and identity package ID will be used automatically.</small>
       </div>
 
       <details id="local-only-section" style="display:none;">
@@ -78,22 +67,12 @@
       <small>Permanently deactivate a DID on-chain. This action is <strong>irreversible</strong>.</small>
     </header>
     <form id="revoke-did-form" onsubmit="return false;">
-      <div class="grid">
-        <label>
-          DID
-          <input type="text" id="revoke-did-input"
-                 placeholder="did:iota:0x..." />
-        </label>
-        <label>
-          Secret Key
-          <input type="password" id="revoke-secret-key"
-                 placeholder="iotaprivkey1... or base64" required />
-        </label>
-      </div>
       <label>
-        Identity Package ID <small>(optional)</small>
-        <input type="text" id="revoke-identity-pkg-id" placeholder="0x..." />
+        DID
+        <input type="text" id="revoke-did-input"
+               placeholder="did:iota:0x..." required />
       </label>
+      <small>The server's configured secret key and identity package ID will be used automatically.</small>
       <button type="submit" id="btn-revoke-did" class="outline secondary">Deactivate</button>
     </form>
     <pre id="revoke-did-result" class="result-box" style="display:none;"></pre>

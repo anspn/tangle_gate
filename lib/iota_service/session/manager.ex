@@ -38,6 +38,8 @@ defmodule IotaService.Session.Manager do
 
   require Logger
 
+  alias IotaService.Store.NotarizationStore
+
   @table :iota_sessions
 
   # ============================================================================
@@ -137,12 +139,14 @@ defmodule IotaService.Session.Manager do
         {:ok, doc}
 
       [{^session_id, _session}] ->
-        # document_json not in memory — try reading from disk
-        doc_path = Path.join([sessions_dir(), session_id, "document.json"])
-
-        case File.read(doc_path) do
-          {:ok, content} -> {:ok, content}
-          {:error, _} -> {:error, :no_document}
+        # document_json not in memory — try reading from MongoDB
+        if repo_started?() do
+          case NotarizationStore.get_document(session_id) do
+            {:ok, content} -> {:ok, content}
+            :not_found -> {:error, :no_document}
+          end
+        else
+          {:error, :no_document}
         end
 
       [] ->
@@ -164,8 +168,8 @@ defmodule IotaService.Session.Manager do
     File.mkdir_p!(sessions_dir)
     File.mkdir_p!(Path.join(sessions_dir, "pending"))
 
-    # Load any previously persisted sessions from disk
-    load_persisted_sessions(sessions_dir)
+    # Load persisted sessions from MongoDB into ETS cache
+    load_persisted_sessions()
 
     Logger.info("Session Manager started (sessions_dir: #{sessions_dir})")
 
@@ -200,14 +204,14 @@ defmodule IotaService.Session.Manager do
       error: nil
     }
 
-    # Store in ETS
+    # Store in ETS (hot cache)
     :ets.insert(@table, {session_id, session})
 
     # Write pending file for ttyd shell to consume
     write_pending_file(session_id, did)
 
-    # Persist session metadata to disk
-    persist_session_meta(session)
+    # Persist session metadata to MongoDB asynchronously
+    persist_async({:upsert_session, session})
 
     emit_telemetry(:start, %{did: did, user_id: user_id})
 
@@ -251,6 +255,27 @@ defmodule IotaService.Session.Manager do
     }
 
     {:reply, stats, state}
+  end
+
+  # Async MongoDB persistence callbacks
+  @impl true
+  def handle_info({:persist, {:upsert_session, session}}, state) do
+    NotarizationStore.upsert_session(session)
+    {:noreply, state}
+  catch
+    kind, reason ->
+      Logger.warning("Async upsert_session failed: #{inspect(kind)} #{inspect(reason)}")
+      {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:persist, {:store_document, session_id, doc_json, hash}}, state) do
+    NotarizationStore.store_document(session_id, doc_json, hash)
+    {:noreply, state}
+  catch
+    kind, reason ->
+      Logger.warning("Async store_document failed: #{inspect(kind)} #{inspect(reason)}")
+      {:noreply, state}
   end
 
   # ============================================================================
@@ -321,15 +346,12 @@ defmodule IotaService.Session.Manager do
         error: error
     }
 
-    # Write the canonical document (the exact JSON that was hashed) to disk
-    doc_path = Path.join([sessions_dir(), session.session_id, "document.json"])
-    File.write(doc_path, document_json)
-
-    # Update ETS
+    # Update ETS (hot cache)
     :ets.insert(@table, {session.session_id, updated_session})
 
-    # Persist final state to disk
-    persist_session_result(updated_session)
+    # Persist document and final session state to MongoDB asynchronously
+    persist_async({:store_document, session.session_id, document_json, hash})
+    persist_async({:upsert_session, updated_session})
 
     emit_telemetry(:end, %{
       session_id: session.session_id,
@@ -571,124 +593,30 @@ defmodule IotaService.Session.Manager do
     end
   end
 
-  defp persist_session_meta(session) do
-    dir = Path.join(sessions_dir(), session.session_id)
-    File.mkdir_p!(dir)
+  defp load_persisted_sessions do
+    if not Application.get_env(:iota_service, :start_repo, true) do
+      Logger.debug("MongoDB disabled — skipping session load from database")
+    else
+      sessions = NotarizationStore.list_sessions(limit: 1000)
 
-    meta = %{
-      session_id: session.session_id,
-      did: session.did,
-      user_id: session.user_id,
-      started_at: DateTime.to_iso8601(session.started_at),
-      status: to_string(session.status)
-    }
-
-    path = Path.join(dir, "session.json")
-    File.write(path, Jason.encode!(meta, pretty: true))
-  end
-
-  defp persist_session_result(session) do
-    dir = Path.join(sessions_dir(), session.session_id)
-    File.mkdir_p!(dir)
-
-    result = %{
-      session_id: session.session_id,
-      did: session.did,
-      user_id: session.user_id,
-      started_at: DateTime.to_iso8601(session.started_at),
-      ended_at: if(session.ended_at, do: DateTime.to_iso8601(session.ended_at)),
-      status: to_string(session.status),
-      command_count: session.command_count,
-      commands: session.commands || [],
-      notarization_hash: session.notarization_hash,
-      on_chain_id: session.on_chain_id,
-      error: session.error
-    }
-
-    path = Path.join(dir, "session.json")
-    File.write(path, Jason.encode!(result, pretty: true))
-  end
-
-  defp load_persisted_sessions(sessions_dir) do
-    case File.ls(sessions_dir) do
-      {:ok, entries} ->
-        entries
-        |> Enum.reject(&(&1 in ["pending", "current"]))
-        |> Enum.each(fn entry ->
-          session_file = Path.join([sessions_dir, entry, "session.json"])
-
-          case File.read(session_file) do
-            {:ok, json} ->
-              case Jason.decode(json) do
-                {:ok, data} ->
-                  session = deserialize_session(data)
-                  :ets.insert(@table, {session.session_id, session})
-
-                _ ->
-                  :ok
-              end
-
-            _ ->
-              :ok
-          end
-        end)
-
-        count = :ets.info(@table, :size)
-        if count > 0, do: Logger.info("Loaded #{count} persisted session(s) from disk")
-
-      {:error, _} ->
-        :ok
-    end
-  end
-
-  defp deserialize_session(data) do
-    commands =
-      (data["commands"] || [])
-      |> Enum.map(fn
-        %{"timestamp" => ts, "command" => cmd} -> %{timestamp: ts, command: cmd}
-        %{"command" => cmd} -> %{command: cmd}
-        other when is_map(other) -> %{command: Map.get(other, "command", "")}
-      end)
-
-    # Try to load the canonical document JSON from disk
-    doc_json =
-      case data["session_id"] do
-        nil ->
-          nil
-
-        sid ->
-          doc_path = Path.join([sessions_dir(), sid, "document.json"])
-
-          case File.read(doc_path) do
-            {:ok, content} -> content
+      Enum.each(sessions, fn session ->
+        # Load document_json from the documents collection
+        doc_json =
+          case NotarizationStore.get_document(session.session_id) do
+            {:ok, json} -> json
             _ -> nil
           end
-      end
 
-    %{
-      session_id: data["session_id"],
-      did: data["did"],
-      user_id: data["user_id"],
-      started_at: parse_datetime(data["started_at"]),
-      ended_at: parse_datetime(data["ended_at"]),
-      status: parse_status(data["status"]),
-      command_count: data["command_count"] || 0,
-      commands: commands,
-      document_json: doc_json,
-      notarization_hash: data["notarization_hash"],
-      notarization_payload: nil,
-      on_chain_id: data["on_chain_id"],
-      error: data["error"]
-    }
-  end
+        session = %{session | document_json: doc_json}
+        :ets.insert(@table, {session.session_id, session})
+      end)
 
-  defp parse_datetime(nil), do: nil
-
-  defp parse_datetime(str) when is_binary(str) do
-    case DateTime.from_iso8601(str) do
-      {:ok, dt, _} -> dt
-      _ -> nil
+      count = :ets.info(@table, :size)
+      if count > 0, do: Logger.info("Loaded #{count} persisted session(s) from MongoDB")
     end
+  catch
+    kind, reason ->
+      Logger.warning("Could not load sessions from MongoDB: #{inspect(kind)} #{inspect(reason)}")
   end
 
   defp parse_status("active"), do: :active
@@ -701,9 +629,13 @@ defmodule IotaService.Session.Manager do
   # Private — Helpers
   # ============================================================================
 
-  defp sessions_dir do
-    ## TODO change the priv_dir location storage to a database or more robust storage solution
+  defp repo_started?, do: Application.get_env(:iota_service, :start_repo, true)
 
+  defp persist_async(op) do
+    if repo_started?(), do: send(self(), {:persist, op})
+  end
+
+  defp sessions_dir do
     Application.get_env(:iota_service, :sessions_dir) ||
       Path.join(:code.priv_dir(:iota_service) |> to_string(), "sessions")
   end

@@ -274,9 +274,6 @@ function initIdentity() {
     ledgerParams.style.display = on ? "block" : "none";
     localSection.style.display = on ? "none" : "block";
     submitBtn.textContent = on ? "Publish DID" : "Generate Local DID";
-
-    // Toggle required attributes
-    document.getElementById("did-secret-key").required = on;
   }
   publishSwitch.addEventListener("change", syncPublishUI);
   syncPublishUI(); // run once on load
@@ -288,12 +285,7 @@ function initIdentity() {
 
     let body;
     if (publish) {
-      body = {
-        publish: true,
-        secret_key: document.getElementById("did-secret-key").value,
-        identity_pkg_id:
-          document.getElementById("did-identity-pkg-id").value || undefined,
-      };
+      body = { publish: true };
     } else {
       body = {
         publish: false,
@@ -347,16 +339,10 @@ function initIdentity() {
     .addEventListener("submit", async () => {
       setLoading("btn-revoke-did", true);
       const did = document.getElementById("revoke-did-input").value;
-      const secretKey = document.getElementById("revoke-secret-key").value;
-      const pkgId =
-        document.getElementById("revoke-identity-pkg-id").value || undefined;
 
       try {
         const encodedDid = encodeURIComponent(did);
-        const res = await api("POST", `/dids/${encodedDid}/revoke`, {
-          secret_key: secretKey,
-          identity_pkg_id: pkgId,
-        });
+        const res = await api("POST", `/dids/${encodedDid}/revoke`, {});
         show("revoke-did-result", res.data, res.status >= 400);
       } catch (err) {
         show("revoke-did-result", `Error: ${err.message}`, true);

@@ -44,16 +44,12 @@ defmodule IotaService.Session.ManagerTest do
       assert did_line == @test_did
     end
 
-    test "persists session metadata to disk", %{sessions_dir: dir} do
+    test "persists session to ETS" do
       {:ok, session} = Manager.start_session(@test_did, @test_user_id)
-      meta_path = Path.join([dir, session.session_id, "session.json"])
-      assert File.exists?(meta_path)
-
-      {:ok, json} = File.read(meta_path)
-      {:ok, meta} = Jason.decode(json)
-      assert meta["session_id"] == session.session_id
-      assert meta["did"] == @test_did
-      assert meta["status"] == "active"
+      assert {:ok, found} = Manager.get_session(session.session_id)
+      assert found.session_id == session.session_id
+      assert found.did == @test_did
+      assert found.status == :active
     end
 
     test "stores session in ETS for retrieval" do
@@ -115,16 +111,13 @@ defmodule IotaService.Session.ManagerTest do
       assert again.status in [:ended, :notarized]
     end
 
-    test "persists final result to disk", %{sessions_dir: dir} do
+    test "persists final result to ETS" do
       {:ok, session} = Manager.start_session(@test_did, @test_user_id)
       {:ok, ended} = Manager.end_session(session.session_id)
 
-      meta_path = Path.join([dir, session.session_id, "session.json"])
-      {:ok, json} = File.read(meta_path)
-      {:ok, meta} = Jason.decode(json)
-
-      assert meta["status"] in ["ended", "notarized"]
-      assert meta["notarization_hash"] == ended.notarization_hash
+      assert {:ok, found} = Manager.get_session(session.session_id)
+      assert found.status in [:ended, :notarized]
+      assert found.notarization_hash == ended.notarization_hash
     end
   end
 

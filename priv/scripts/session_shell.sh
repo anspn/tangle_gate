@@ -176,14 +176,13 @@ history() {
 TRAPEOF
 
 # ---- Cleanup on exit -------------------------------------------------------
+# The bash EXIT trap only flushes history. Final cleanup (chattr -a, ended.json)
+# is handled by the outer restart loop in session_shell.sh so that typing
+# 'exit' restarts the shell instead of finalizing the session.
 cat >> "$SESSION_DIR/bashrc" << EXITEOF
 _iota_session_cleanup() {
   history -a 2>/dev/null
   chmod 644 "\$HISTFILE" 2>/dev/null
-  # Remove append-only attribute so the Elixir app can manage the file
-  chattr -a "${AUDIT_LOG}" 2>/dev/null || true
-  chmod 644 "${AUDIT_LOG}" 2>/dev/null
-  echo "{\"ended_at\": \"\$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "${SESSION_DIR}/ended.json"
 }
 trap '_iota_session_cleanup' EXIT
 EXITEOF
@@ -193,7 +192,7 @@ cat >> "$SESSION_DIR/bashrc" << BANNEREOF
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║  🔷  IOTA Service Terminal           ║"
+echo "  ║  🔷   TangleGate Terminal            ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 echo "  Session : ${SESSION_ID}"
@@ -205,12 +204,46 @@ fi
 
 cat >> "$SESSION_DIR/bashrc" << 'TAILEOF'
 echo ""
-echo "  Commands are recorded and will be notarized on the IOTA Tangle."
+echo "  Commands are recorded and will be notarized on the TangleGate."
 echo "  History tampering is disabled — all commands are audit-logged."
 echo ""
 # ---- Activate the DEBUG trap LAST so init commands are not recorded ----
 trap '_iota_audit_command' DEBUG
 TAILEOF
 
-# --- Launch the interactive shell -------------------------------------------
-exec bash --rcfile "$SESSION_DIR/bashrc" -i
+# --- Launch the interactive shell in a restart loop -------------------------
+# When the user types 'exit' (or Ctrl+D), bash terminates but the session
+# continues — the loop restarts bash with the same session context (same
+# session_id, same audit log). The session only truly ends when ttyd sends
+# SIGHUP/SIGTERM (user clicks Disconnect) or the container is stopped.
+#
+# This prevents the bug where typing 'exit' finalizes the audit log and any
+# subsequent commands (after reconnecting) are lost.
+
+_IOTA_SHUTDOWN_REQUESTED=0
+
+_iota_request_shutdown() {
+  _IOTA_SHUTDOWN_REQUESTED=1
+}
+
+# TERM/HUP are sent by ttyd when the WebSocket disconnects
+trap '_iota_request_shutdown' TERM HUP INT
+
+while true; do
+  bash --rcfile "$SESSION_DIR/bashrc" -i
+
+  # If a shutdown signal was received, break out of the loop
+  if [[ $_IOTA_SHUTDOWN_REQUESTED -eq 1 ]]; then
+    break
+  fi
+
+  # User typed 'exit' or Ctrl+D — log the restart and re-launch bash
+  printf '%s\t0\t[shell restarted after exit command]\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$AUDIT_LOG" 2>/dev/null
+done
+
+# --- Final cleanup (session truly ended) ------------------------------------
+# Remove append-only attribute so the Elixir app can manage the file
+chattr -a "$AUDIT_LOG" 2>/dev/null || true
+chmod 644 "$AUDIT_LOG" 2>/dev/null
+echo "{\"ended_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$SESSION_DIR/ended.json"

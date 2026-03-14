@@ -42,6 +42,23 @@ if config_env() == :prod do
 
   config :iota_service, port: port
 
+  # --- MongoDB ---
+  mongo_url = env.("MONGO_URL", "mongodb://localhost:27017/iota_service")
+
+  config :iota_service, IotaService.Store.Repo,
+    url: mongo_url,
+    pool_size: String.to_integer(env.("MONGO_POOL_SIZE", "10"))
+
+  # --- Vault ---
+  vault_enabled = env.("VAULT_ENABLED", "true") == "true"
+
+  config :iota_service, IotaService.Vault.Client,
+    enabled: vault_enabled,
+    addr: env.("VAULT_ADDR", "http://localhost:8200"),
+    token: env.("VAULT_TOKEN", ""),
+    mount: env.("VAULT_MOUNT", "secret"),
+    secret_path: env.("VAULT_SECRET_PATH", "iota_service")
+
   # --- JWT Auth ---
   secret =
     System.get_env("SECRET_KEY_BASE") ||

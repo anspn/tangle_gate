@@ -41,6 +41,9 @@ defmodule IotaService.MixProject do
       # HTTP client
       {:req, "~> 0.5"},
 
+      # MongoDB driver
+      {:mongodb_driver, "~> 1.4"},
+
       # Telemetry for metrics
       {:telemetry, "~> 1.2"},
 
