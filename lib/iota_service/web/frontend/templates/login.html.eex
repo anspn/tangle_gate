@@ -5,7 +5,14 @@
     <p>Authenticate to access the IOTA Service console</p>
   </hgroup>
 
-  <article>
+  <!-- Tab selector -->
+  <div id="login-tabs" style="display:flex;gap:1rem;margin-bottom:1rem;">
+    <button id="tab-password" class="contrast" onclick="switchLoginTab('password')">Email &amp; Password</button>
+    <button id="tab-vp" class="outline" onclick="switchLoginTab('vp')">Verifiable Presentation</button>
+  </div>
+
+  <!-- Password login -->
+  <article id="login-password-card">
     <div id="login-status" class="notice" style="display:none;"></div>
     <form id="login-form" onsubmit="return false;">
       <label>
@@ -22,6 +29,38 @@
         <code>user@iota.local / iota_user_2026</code> (user) &middot;
         <code>verifier@iota.local / iota_verifier_2026</code> (verifier)
       </small>
+    </form>
+  </article>
+
+  <!-- VP-based login -->
+  <article id="login-vp-card" style="display:none;">
+    <div id="vp-login-status" class="notice" style="display:none;"></div>
+    <p>
+      Authenticate using a Verifiable Presentation containing a server-issued credential.
+    </p>
+
+    <div style="margin-bottom:1rem;">
+      <button id="btn-get-challenge" class="outline">1. Get Challenge Nonce</button>
+      <div id="challenge-display" style="display:none;margin-top:0.5rem;">
+        <small>Challenge (valid for 5 minutes):</small>
+        <code id="challenge-value" style="word-break:break-all;display:block;padding:0.5rem;background:var(--card-background-color);border-radius:4px;margin-top:0.25rem;"></code>
+      </div>
+    </div>
+
+    <form id="vp-login-form" onsubmit="return false;">
+      <label>
+        Holder DID Document <small>(JSON, including keys)</small>
+        <textarea id="vp-holder-doc" rows="5"
+                  placeholder='{"id":"did:iota:0x...","verificationMethod":[...],...}'
+                  required></textarea>
+      </label>
+      <label>
+        Credential JWT
+        <textarea id="vp-credential-jwt" rows="3"
+                  placeholder="eyJhbGciOi..." required></textarea>
+        <small>The TangleGateAccessCredential JWT issued to you by the server admin.</small>
+      </label>
+      <button type="submit" id="btn-vp-login">2. Sign in with VP</button>
     </form>
   </article>
 </section>

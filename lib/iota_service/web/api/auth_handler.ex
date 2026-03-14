@@ -4,9 +4,10 @@ defmodule IotaService.Web.API.AuthHandler do
 
   ## Endpoints
 
-  - `POST /api/auth/login`     — Authenticate with email/password, receive JWT
-  - `GET  /api/auth/challenge` — Get a fresh challenge nonce for VP-based auth
-  - `POST /api/auth/present`   — Authenticate with a Verifiable Presentation
+  - `POST /api/auth/login`                    — Authenticate with email/password, receive JWT
+  - `GET  /api/auth/challenge`                — Get a fresh challenge nonce for VP-based auth
+  - `POST /api/auth/present`                  — Authenticate with a pre-built VP JWT
+  - `POST /api/auth/present-with-credential`  — VP login from holder doc + credential (creates VP server-side)
   """
 
   use Plug.Router
@@ -95,6 +96,43 @@ defmodule IotaService.Web.API.AuthHandler do
 
       true ->
         do_vp_authentication(conn, presentation_jwt, challenge, holder_did)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/auth/present-with-credential — VP login from holder doc + credential
+  #
+  # Creates a VP server-side from the holder's DID document (with keys) and
+  # a credential JWT, then verifies the VP for authentication.
+  # This is for unauthenticated users who don't yet have a session JWT.
+  # ---------------------------------------------------------------------------
+  post "/present-with-credential" do
+    params = conn.body_params || %{}
+    holder_doc_json = params["holder_doc_json"]
+    credential_jwt = params["credential_jwt"]
+    challenge = params["challenge"]
+
+    cond do
+      is_nil(holder_doc_json) || holder_doc_json == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: holder_doc_json"
+        })
+
+      is_nil(credential_jwt) || credential_jwt == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: credential_jwt"
+        })
+
+      is_nil(challenge) || challenge == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: challenge"
+        })
+
+      true ->
+        do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge)
     end
   end
 
@@ -237,6 +275,46 @@ defmodule IotaService.Web.API.AuthHandler do
   end
 
   # -- Helpers ---------------------------------------------------------------
+
+  defp do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge) do
+    # 1. Consume the challenge (single-use)
+    case ChallengeCache.consume_challenge(challenge) do
+      :not_found ->
+        Helpers.json(conn, 401, %{
+          error: "invalid_challenge",
+          message:
+            "Challenge not found or already used. Request a new one via GET /api/auth/challenge."
+        })
+
+      :expired ->
+        Helpers.json(conn, 401, %{
+          error: "challenge_expired",
+          message: "Challenge has expired. Request a new one via GET /api/auth/challenge."
+        })
+
+      :ok ->
+        # 2. Create VP from holder doc + credential
+        cred_jwts_json = Jason.encode!([credential_jwt])
+
+        case CredServer.create_presentation(holder_doc_json, cred_jwts_json, challenge, 300) do
+          {:ok, %{"presentation_jwt" => presentation_jwt, "holder_did" => holder_did}} ->
+            # 3. Verify the VP we just created
+            verify_and_authenticate(
+              conn,
+              presentation_jwt,
+              challenge,
+              holder_did,
+              holder_doc_json
+            )
+
+          {:error, reason} ->
+            Helpers.json(conn, 422, %{
+              error: "presentation_failed",
+              message: "Failed to create VP: #{inspect(reason)}"
+            })
+        end
+    end
+  end
 
   defp format_exp(nil), do: nil
 

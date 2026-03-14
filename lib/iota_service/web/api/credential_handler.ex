@@ -1,15 +1,17 @@
 defmodule IotaService.Web.API.CredentialHandler do
   @moduledoc """
-  Credential API handler — VC issuance and server DID management.
+  Credential API handler — VC issuance, VP creation, and server DID management.
 
-  All routes require JWT authentication with admin role.
+  Admin routes require JWT authentication with admin role.
+  The `create-presentation` route is available to any authenticated user.
 
   ## Endpoints
 
-  - `POST /api/credentials/provision`   — Provision the server's DID (one-time)
-  - `GET  /api/credentials/server-did`  — Get the server's DID info
-  - `POST /api/credentials/issue`       — Issue a VC to a holder DID
-  - `GET  /api/credentials`             — List issued credentials
+  - `POST /api/credentials/provision`            — Provision the server's DID (admin)
+  - `GET  /api/credentials/server-did`            — Get the server's DID info (admin)
+  - `POST /api/credentials/issue`                 — Issue a VC to a holder DID (admin)
+  - `POST /api/credentials/create-presentation`   — Create a VP from holder doc + credentials (any auth)
+  - `GET  /api/credentials`                       — List issued credentials (admin)
   """
 
   use Plug.Router
@@ -21,35 +23,37 @@ defmodule IotaService.Web.API.CredentialHandler do
   alias IotaService.Web.Auth
 
   plug(:match)
-  plug(:authenticate_admin)
+  plug(:authenticate)
   plug(:dispatch)
 
   # ---------------------------------------------------------------------------
-  # Auth — admin only
+  # Auth — any authenticated user; admin checked per-route
   # ---------------------------------------------------------------------------
 
-  defp authenticate_admin(conn, _opts) do
+  defp authenticate(conn, _opts) do
     with {:ok, token} <- extract_bearer_token(conn),
          {:ok, claims} <- Auth.verify_token(token) do
-      role = claims["role"] || "user"
-
-      if role == "admin" do
-        assign(conn, :current_user, %{
-          id: claims["user_id"],
-          email: claims["email"],
-          role: role
-        })
-      else
-        conn
-        |> Helpers.json(403, %{error: "forbidden", message: "Requires admin role"})
-        |> halt()
-      end
+      assign(conn, :current_user, %{
+        id: claims["user_id"],
+        email: claims["email"],
+        role: claims["role"] || "user"
+      })
     else
       {:error, :no_token} ->
         conn |> Helpers.unauthorized("Missing Authorization header") |> halt()
 
       {:error, _reason} ->
         conn |> Helpers.unauthorized("Invalid or expired token") |> halt()
+    end
+  end
+
+  defp require_admin(conn) do
+    if conn.assigns[:current_user].role == "admin" do
+      conn
+    else
+      conn
+      |> Helpers.json(403, %{error: "forbidden", message: "Requires admin role"})
+      |> halt()
     end
   end
 
@@ -61,9 +65,87 @@ defmodule IotaService.Web.API.CredentialHandler do
   end
 
   # ---------------------------------------------------------------------------
-  # POST /api/credentials/provision — Provision server DID (one-time)
+  # POST /api/credentials/provision — Provision server DID (one-time, admin)
   # ---------------------------------------------------------------------------
   post "/provision" do
+    conn = require_admin(conn)
+    if conn.halted?, do: conn, else: do_provision(conn)
+  end
+
+  # ---------------------------------------------------------------------------
+  # GET /api/credentials/server-did — Get server DID info (admin)
+  # ---------------------------------------------------------------------------
+  get "/server-did" do
+    conn = require_admin(conn)
+    if conn.halted?, do: conn, else: do_server_did(conn)
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/issue — Issue a VC to a holder (admin)
+  # ---------------------------------------------------------------------------
+  post "/issue" do
+    conn = require_admin(conn)
+    if conn.halted?, do: conn, else: do_issue(conn)
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/create-presentation — Create a VP (any authenticated user)
+  # ---------------------------------------------------------------------------
+  post "/create-presentation" do
+    params = conn.body_params || %{}
+
+    with {:ok, holder_doc_json} <- require_param(params, "holder_doc_json"),
+         {:ok, credential_jwts} <- require_param(params, "credential_jwts"),
+         {:ok, challenge} <- require_param(params, "challenge") do
+      expires_in = params["expires_in"] || 600
+
+      # credential_jwts can be a list or a JSON string
+      cred_jwts_json =
+        cond do
+          is_list(credential_jwts) -> Jason.encode!(credential_jwts)
+          is_binary(credential_jwts) -> credential_jwts
+        end
+
+      case CredServer.create_presentation(holder_doc_json, cred_jwts_json, challenge, expires_in) do
+        {:ok, result} ->
+          Helpers.json(conn, 201, %{
+            presentation_jwt: result["presentation_jwt"],
+            holder_did: result["holder_did"],
+            message: "Verifiable Presentation created"
+          })
+
+        {:error, reason} ->
+          Helpers.json(conn, 422, %{
+            error: "presentation_failed",
+            message: "Failed to create presentation: #{inspect(reason)}"
+          })
+      end
+    else
+      {:error, {:missing_parameter, key}} ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: #{key}"
+        })
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # GET /api/credentials — List issued credentials (admin)
+  # ---------------------------------------------------------------------------
+  get "/" do
+    conn = require_admin(conn)
+    if conn.halted?, do: conn, else: do_list_credentials(conn)
+  end
+
+  match _ do
+    Helpers.json(conn, 404, %{error: "not_found", message: "Credential route not found"})
+  end
+
+  # ===========================================================================
+  # Private — route implementations
+  # ===========================================================================
+
+  defp do_provision(conn) do
     case CredServer.provision_server_did() do
       {:ok, identity} ->
         Helpers.json(conn, 201, %{
@@ -84,10 +166,7 @@ defmodule IotaService.Web.API.CredentialHandler do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # GET /api/credentials/server-did — Get server DID info
-  # ---------------------------------------------------------------------------
-  get "/server-did" do
+  defp do_server_did(conn) do
     case CredServer.server_did_info() do
       {:ok, identity} ->
         Helpers.json(conn, 200, %{
@@ -105,16 +184,12 @@ defmodule IotaService.Web.API.CredentialHandler do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # POST /api/credentials/issue — Issue a VC to a holder
-  # ---------------------------------------------------------------------------
-  post "/issue" do
+  defp do_issue(conn) do
     params = conn.body_params || %{}
 
     with {:ok, holder_did} <- require_param(params, "holder_did"),
          claims <- params["claims"] || %{},
          credential_type <- params["credential_type"] || "TangleGateAccessCredential" do
-      # Merge role into claims if provided separately
       claims =
         if params["role"] do
           Map.put(claims, "role", params["role"])
@@ -150,10 +225,7 @@ defmodule IotaService.Web.API.CredentialHandler do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # GET /api/credentials — List issued credentials
-  # ---------------------------------------------------------------------------
-  get "/" do
+  defp do_list_credentials(conn) do
     if Application.get_env(:iota_service, :start_repo, true) do
       params = Plug.Conn.fetch_query_params(conn).query_params
 
@@ -175,14 +247,6 @@ defmodule IotaService.Web.API.CredentialHandler do
       })
     end
   end
-
-  match _ do
-    Helpers.json(conn, 404, %{error: "not_found", message: "Credential route not found"})
-  end
-
-  # ===========================================================================
-  # Private
-  # ===========================================================================
 
   defp require_param(params, key) do
     case Map.get(params, key) do

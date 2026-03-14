@@ -11,7 +11,7 @@ management and data notarization.
 - **Notarization**: Timestamp and hash-anchor data for Tangle submission
 - **Supervised Architecture**: Fault-tolerant supervision tree
 - **NIF Integration**: Uses Rust NIFs for cryptographic operations
-- **Web Portal**: User portal with DID-gated terminal access via ttyd
+- **Web Portal**: User portal with VP-gated terminal access via ttyd
 - **Session Recording**: Tamper-proof TTY session recording with downloadable audit logs
 - **On-Chain Notarization**: Automatic publishing of session hashes to the IOTA Rebased ledger
 - **Verification**: Verifier role with on-chain notarization verification page
@@ -159,7 +159,7 @@ docker compose up -d --build
 | `app` | 4000 | IOTA Service (Elixir) |
 | `mongo` | 27017 | MongoDB — document store for sessions & notarization records |
 | `vault` | 8200 | HashiCorp Vault — secrets management (IOTA private keys) |
-| `ttyd` | 7681 | Web-based terminal — embedded in portal after DID validation |
+| `ttyd` | 7681 | Web-based terminal — embedded in portal after VP verification |
 
 ### Required Environment Variables
 
@@ -193,6 +193,7 @@ MIX_ENV=local mix test
 
 - **lib/iota_service/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
 - **lib/iota_service/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
+- **lib/iota_service/credential/verifier.ex** (L21) — Verify that the module is truly self-contained and has no hidden dependencies on application state or GenServers; test connectivity with IOTA testnet
 
 
 ## License

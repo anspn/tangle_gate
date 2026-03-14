@@ -193,6 +193,27 @@ function initLogin() {
     return;
   }
 
+  // Tab switching
+  window.switchLoginTab = function (tab) {
+    const pwCard = document.getElementById("login-password-card");
+    const vpCard = document.getElementById("login-vp-card");
+    const tabPw = document.getElementById("tab-password");
+    const tabVp = document.getElementById("tab-vp");
+
+    if (tab === "vp") {
+      pwCard.style.display = "none";
+      vpCard.style.display = "block";
+      tabPw.className = "outline";
+      tabVp.className = "contrast";
+    } else {
+      pwCard.style.display = "block";
+      vpCard.style.display = "none";
+      tabPw.className = "contrast";
+      tabVp.className = "outline";
+    }
+  };
+
+  // --- Email/password login ------------------------------------------------
   form.addEventListener("submit", async () => {
     setLoading("btn-login", true);
     const email = document.getElementById("login-email").value;
@@ -223,6 +244,91 @@ function initLogin() {
       setLoading("btn-login", false);
     }
   });
+
+  // --- VP-based login ------------------------------------------------------
+  let vpChallenge = null;
+
+  const challengeBtn = document.getElementById("btn-get-challenge");
+  if (challengeBtn) {
+    challengeBtn.addEventListener("click", async () => {
+      setLoading("btn-get-challenge", true);
+      try {
+        const res = await api("GET", "/auth/challenge");
+        if (res.status === 200) {
+          vpChallenge = res.data.challenge;
+          document.getElementById("challenge-value").textContent = vpChallenge;
+          document.getElementById("challenge-display").style.display = "block";
+          showNotice("vp-login-status", "Challenge obtained. Fill in your credentials and click Sign in.", "success");
+        } else {
+          showNotice("vp-login-status", res.data.message || "Failed to get challenge", "error");
+        }
+      } catch (err) {
+        showNotice("vp-login-status", `Error: ${err.message}`, "error");
+      } finally {
+        setLoading("btn-get-challenge", false);
+      }
+    });
+  }
+
+  const vpForm = document.getElementById("vp-login-form");
+  if (vpForm) {
+    vpForm.addEventListener("submit", async () => {
+      if (!vpChallenge) {
+        showNotice("vp-login-status", "Get a challenge nonce first (step 1).", "error");
+        return;
+      }
+
+      setLoading("btn-vp-login", true);
+      const holderDocJson = document.getElementById("vp-holder-doc").value.trim();
+      const credentialJwt = document.getElementById("vp-credential-jwt").value.trim();
+
+      // Validate JSON
+      try {
+        JSON.parse(holderDocJson);
+      } catch (e) {
+        showNotice("vp-login-status", "DID document must be valid JSON.", "error");
+        setLoading("btn-vp-login", false);
+        return;
+      }
+
+      try {
+        // Create VP via public API (no auth required for this — we're logging in)
+        // We use fetch directly since we don't have a token yet
+        const vpRes = await fetch("/api/auth/present-with-credential", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            holder_doc_json: holderDocJson,
+            credential_jwt: credentialJwt,
+            challenge: vpChallenge,
+          }),
+        });
+        const vpData = await vpRes.json();
+
+        if (vpRes.ok && vpData.token) {
+          setToken(vpData.token);
+          setRole(vpData.user.role || "user");
+          showNotice(
+            "vp-login-status",
+            `Authenticated via VP as ${vpData.user.email} (${vpData.user.role})`,
+            "success"
+          );
+          const dest = vpData.user.role === "user" ? "/portal" : vpData.user.role === "verifier" ? "/verify" : "/";
+          setTimeout(() => (window.location.href = dest), 600);
+        } else {
+          showNotice("vp-login-status", vpData.message || "VP authentication failed", "error");
+          // Challenge consumed — get a new one
+          vpChallenge = null;
+          document.getElementById("challenge-display").style.display = "none";
+        }
+      } catch (err) {
+        showNotice("vp-login-status", `Error: ${err.message}`, "error");
+        vpChallenge = null;
+      } finally {
+        setLoading("btn-vp-login", false);
+      }
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -371,23 +477,47 @@ function initPortal() {
   const disconnectBtn = document.getElementById("btn-disconnect-terminal");
 
   /**
-   * Start a recording session via the API.
-   * @param {string} did — The validated DID
-   * @returns {Promise<string|null>} session_id or null on failure
+   * VP-based session creation flow:
+   * 1. Get challenge nonce from server
+   * 2. Create a Verifiable Presentation (VP) with holder doc + credential + challenge
+   * 3. Start a recording session with the VP
+   *
+   * @param {string} holderDocJson — holder DID document JSON (with keys)
+   * @param {string} credentialJwt — the credential JWT issued by the server
+   * @returns {Promise<{sessionId: string, did: string}|null>}
    */
-  async function startRecordingSession(did) {
-    try {
-      const res = await api("POST", "/sessions", { did });
-      if (res.status === 201 && res.data.session_id) {
-        sessionStorage.setItem("iota_session_id", res.data.session_id);
-        return res.data.session_id;
-      }
-      console.warn("Failed to start recording session:", res.data);
-      return null;
-    } catch (err) {
-      console.warn("Recording session start error:", err);
-      return null;
+  async function startVPSession(holderDocJson, credentialJwt) {
+    // Step 1: Get challenge nonce
+    const challengeRes = await api("GET", "/auth/challenge");
+    if (challengeRes.status !== 200) {
+      throw new Error(challengeRes.data.message || "Failed to get challenge");
     }
+    const challenge = challengeRes.data.challenge;
+
+    // Step 2: Create VP via server (holder doc contains keys)
+    const vpRes = await api("POST", "/credentials/create-presentation", {
+      holder_doc_json: holderDocJson,
+      credential_jwts: [credentialJwt],
+      challenge: challenge,
+      expires_in: 300,
+    });
+    if (vpRes.status !== 201) {
+      throw new Error(vpRes.data.message || "Failed to create presentation");
+    }
+    const presentationJwt = vpRes.data.presentation_jwt;
+    const holderDid = vpRes.data.holder_did;
+
+    // Step 3: Start session with VP
+    const sessionRes = await api("POST", "/sessions", {
+      presentation_jwt: presentationJwt,
+      challenge: challenge,
+      holder_did: holderDid,
+    });
+    if (sessionRes.status === 201 && sessionRes.data.session_id) {
+      sessionStorage.setItem("iota_session_id", sessionRes.data.session_id);
+      return { sessionId: sessionRes.data.session_id, did: holderDid };
+    }
+    throw new Error(sessionRes.data.message || "Failed to start session");
   }
 
   /**
@@ -462,27 +592,29 @@ function initPortal() {
     if (statusEl) statusEl.style.display = "none";
     if (resultEl) resultEl.style.display = "none";
 
-    const did = document.getElementById("upload-did-input").value.trim();
-    const pkgId = document.getElementById("portal-identity-pkg-id").value.trim();
+    const holderDocJson = document.getElementById("holder-doc-input").value.trim();
+    const credentialJwt = document.getElementById("credential-jwt-input").value.trim();
+
+    if (!holderDocJson || !credentialJwt) {
+      showNotice("upload-did-status", "Both DID document and credential JWT are required.", "error");
+      setLoading("btn-upload-did", false);
+      return;
+    }
+
+    // Validate that holder_doc_json is valid JSON
+    try {
+      JSON.parse(holderDocJson);
+    } catch (e) {
+      showNotice("upload-did-status", "DID document must be valid JSON.", "error");
+      setLoading("btn-upload-did", false);
+      return;
+    }
 
     try {
-      const body = { did };
-      if (pkgId) body.identity_pkg_id = pkgId;
-      const res = await api("POST", "/dids/validate", body);
-      if (res.status === 200 && res.data.valid) {
-        // DID is valid — start a recording session and show the terminal
-        await startRecordingSession(did);
-        showTerminal(did);
-      } else {
-        showNotice(
-          "upload-did-status",
-          res.data.message || "Invalid DID",
-          "error"
-        );
-        show("upload-did-result", res.data, true);
-      }
+      const result = await startVPSession(holderDocJson, credentialJwt);
+      showTerminal(result.did);
     } catch (err) {
-      showNotice("upload-did-status", `Error: ${err.message}`, "error");
+      showNotice("upload-did-status", `Session start failed: ${err.message}`, "error");
     } finally {
       setLoading("btn-upload-did", false);
     }

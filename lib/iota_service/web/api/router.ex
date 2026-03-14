@@ -5,10 +5,10 @@ defmodule IotaService.Web.API.Router do
   All routes produce `application/json` responses.
   Mounts sub-routers per domain:
 
-  - `/api/auth/*`         → Authentication (login, challenge, VP-based auth)
+  - `/api/auth/*`         → Authentication (login, challenge, VP-based auth, VP-login-with-credential)
   - `/api/dids/*`         → DID / Identity management
-  - `/api/credentials/*`  → VC issuance and server DID management (admin)
-  - `/api/sessions/*`     → TTY session recording & notarization
+  - `/api/credentials/*`  → VC issuance, VP creation, and server DID management
+  - `/api/sessions/*`     → TTY session recording & notarization (VP-gated)
   - `/api/verify/*`       → Notarization verification
   - `/api/health`         → Health check
   """

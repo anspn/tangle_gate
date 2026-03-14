@@ -1,33 +1,34 @@
 <section>
   <hgroup>
     <h1>User Portal</h1>
-    <p>Upload your DID to access IOTA Service features</p>
+    <p>Present your Verifiable Credential to access an authenticated terminal session</p>
   </hgroup>
 
   <article id="did-validation-card">
     <header>
-      <h3>Upload DID</h3>
+      <h3>Start Authenticated Session</h3>
     </header>
     <form id="upload-did-form" onsubmit="return false;">
       <label>
-        Your DID
-        <input type="text" id="upload-did-input"
-               placeholder="did:iota:0x..." required />
-        <small>Enter the Decentralized Identifier issued to you (e.g. <code>did:iota:0xabc…</code>).</small>
+        Holder DID Document <small>(JSON, including keys)</small>
+        <textarea id="holder-doc-input" rows="6"
+                  placeholder='{"id":"did:iota:0x...","verificationMethod":[...],...}'
+                  required></textarea>
+        <small>Paste the full DID document with private key material (as returned by DID generation).</small>
       </label>
       <label>
-        Identity Package ID
-        <input type="text" id="portal-identity-pkg-id"
-               placeholder="0x... (empty for auto-discovery)" />
-        <small>Leave empty for official networks.</small>
+        Credential JWT
+        <textarea id="credential-jwt-input" rows="3"
+                  placeholder="eyJhbGciOi..." required></textarea>
+        <small>The TangleGateAccessCredential JWT issued to you by the server admin.</small>
       </label>
-      <button type="submit" id="btn-upload-did">Validate on-chain</button>
+      <button type="submit" id="btn-upload-did">Start Session</button>
     </form>
     <div id="upload-did-status" class="notice" style="display:none;"></div>
     <pre id="upload-did-result" class="result-box" style="display:none;"></pre>
   </article>
 
-  <!-- Terminal: shown after successful DID validation -->
+  <!-- Terminal: shown after successful VP verification -->
   <article id="terminal-card" style="display:none;">
     <header>
       <div class="terminal-header">
