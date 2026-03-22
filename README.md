@@ -1,4 +1,4 @@
-# IotaService
+# TangleGate
 
 Elixir application for IOTA Tangle operations, including DID (Decentralized Identifier)
 management and data notarization.
@@ -25,37 +25,37 @@ management and data notarization.
 
 ```elixir
 # Start the application
-Application.ensure_all_started(:iota_service)
+Application.ensure_all_started(:tangle_gate)
 
 # Generate a DID
-{:ok, did_result} = IotaService.generate_did()
+{:ok, did_result} = TangleGate.generate_did()
 IO.puts("Generated DID: #{did_result.did}")
 
 # Notarize data
-{:ok, payload} = IotaService.notarize("Important document content")
+{:ok, payload} = TangleGate.notarize("Important document content")
 IO.inspect(payload, label: "Notarization payload")
 
 # Verify the DID format
-true = IotaService.valid_did?(did_result.did)
+true = TangleGate.valid_did?(did_result.did)
 ```
 
 ## Supervision Tree
 
 ```
-IotaService.Application (rest_for_one)
-├── IotaService.NIF.Loader            # Ensures NIF is loaded
-├── IotaService.Store.Repo            # MongoDB connection pool
-├── IotaService.Identity.Supervisor   # (one_for_one)
-│   ├── IotaService.Identity.Cache    # ETS-backed DID cache
-│   └── IotaService.Identity.Server   # DID operations
-├── IotaService.Credential.Supervisor # (one_for_one)
-│   ├── IotaService.Credential.ChallengeCache  # ETS challenge nonce store
-│   └── IotaService.Credential.Server # VC/VP operations
-├── IotaService.Notarization.Supervisor  # (one_for_one)
-│   ├── IotaService.Notarization.Queue   # Job queue
-│   └── IotaService.Notarization.Server  # Notarization operations
-└── IotaService.Session.Supervisor    # (one_for_one)
-    └── IotaService.Session.Manager   # Session recording & notarization
+TangleGate.Application (rest_for_one)
+├── TangleGate.NIF.Loader            # Ensures NIF is loaded
+├── TangleGate.Store.Repo            # MongoDB connection pool
+├── TangleGate.Identity.Supervisor   # (one_for_one)
+│   ├── TangleGate.Identity.Cache    # ETS-backed DID cache
+│   └── TangleGate.Identity.Server   # DID operations
+├── TangleGate.Credential.Supervisor # (one_for_one)
+│   ├── TangleGate.Credential.ChallengeCache  # ETS challenge nonce store
+│   └── TangleGate.Credential.Server # VC/VP operations
+├── TangleGate.Notarization.Supervisor  # (one_for_one)
+│   ├── TangleGate.Notarization.Queue   # Job queue
+│   └── TangleGate.Notarization.Server  # Notarization operations
+└── TangleGate.Session.Supervisor    # (one_for_one)
+    └── TangleGate.Session.Manager   # Session recording & notarization
 ```
 
 ## API Reference
@@ -64,16 +64,16 @@ IotaService.Application (rest_for_one)
 
 ```elixir
 # Generate DID for different networks
-IotaService.generate_did()                    # IOTA mainnet
-IotaService.generate_did(network: :smr)       # Shimmer
-IotaService.generate_did(network: :rms)       # Shimmer testnet
-IotaService.generate_did(network: :atoi)      # IOTA testnet
+TangleGate.generate_did()                    # IOTA mainnet
+TangleGate.generate_did(network: :smr)       # Shimmer
+TangleGate.generate_did(network: :rms)       # Shimmer testnet
+TangleGate.generate_did(network: :atoi)      # IOTA testnet
 
 # Validate DID format
-IotaService.valid_did?("did:iota:0x123...")   # => true/false
+TangleGate.valid_did?("did:iota:0x123...")   # => true/false
 
 # Create DID URL
-IotaService.create_did_url("did:iota:0x123", "key-1")
+TangleGate.create_did_url("did:iota:0x123", "key-1")
 # => {:ok, "did:iota:0x123#key-1"}
 ```
 
@@ -81,20 +81,20 @@ IotaService.create_did_url("did:iota:0x123", "key-1")
 
 ```elixir
 # Hash data
-hash = IotaService.hash("data to hash")
+hash = TangleGate.hash("data to hash")
 
 # Create notarization payload
-{:ok, payload} = IotaService.notarize("document", "my-tag")
+{:ok, payload} = TangleGate.notarize("document", "my-tag")
 
 # Verify payload
-{:ok, result} = IotaService.verify_notarization(payload["payload_hex"])
+{:ok, result} = TangleGate.verify_notarization(payload["payload_hex"])
 ```
 
 ### Verifiable Credentials
 
 ```elixir
 # Issue a credential (server as issuer)
-{:ok, vc} = IotaService.create_credential(
+{:ok, vc} = TangleGate.create_credential(
   issuer_doc_json,
   holder_did,
   "TangleGateAccessCredential",
@@ -103,7 +103,7 @@ hash = IotaService.hash("data to hash")
 credential_jwt = vc["credential_jwt"]
 
 # Verify a credential
-{:ok, result} = IotaService.verify_credential(credential_jwt, issuer_doc_json)
+{:ok, result} = TangleGate.verify_credential(credential_jwt, issuer_doc_json)
 # result["valid"] => true
 ```
 
@@ -111,7 +111,7 @@ credential_jwt = vc["credential_jwt"]
 
 ```elixir
 # Create a presentation (holder side)
-{:ok, vp} = IotaService.create_presentation(
+{:ok, vp} = TangleGate.create_presentation(
   holder_doc_json,
   Jason.encode!([credential_jwt]),
   "challenge-nonce",
@@ -120,7 +120,7 @@ credential_jwt = vc["credential_jwt"]
 presentation_jwt = vp["presentation_jwt"]
 
 # Verify a presentation (verifier side)
-{:ok, result} = IotaService.verify_presentation(
+{:ok, result} = TangleGate.verify_presentation(
   presentation_jwt,
   holder_doc_json,
   Jason.encode!([Jason.decode!(issuer_doc_json)]),
@@ -132,10 +132,10 @@ presentation_jwt = vp["presentation_jwt"]
 
 ```elixir
 # Enqueue for later processing
-{:ok, job_ref} = IotaService.enqueue_notarization("data", "batch-tag")
+{:ok, job_ref} = TangleGate.enqueue_notarization("data", "batch-tag")
 
 # Check stats
-IotaService.queue_stats()
+TangleGate.queue_stats()
 # => %{pending: 1, total_jobs: 1, processed: 0, failed: 0}
 ```
 
@@ -186,7 +186,7 @@ IOTA_TESTNET=1 mix test
 
 # Ledger tests (requires funded secret key)
 IOTA_TEST_SECRET_KEY=iotaprivkey1... \
-IOTA_TESTNET=1 mix test test/iota_service/integration/ledger_identity_test.exs
+IOTA_TESTNET=1 mix test test/tangle_gate/integration/ledger_identity_test.exs
 
 # Against a local node
 MIX_ENV=local mix test
@@ -194,10 +194,10 @@ MIX_ENV=local mix test
 
 ## TODO
 
-- **lib/iota_service/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
-- **lib/iota_service/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
-- **lib/iota_service/credential/verifier.ex** (L21) — Verify that the module is truly self-contained and has no hidden dependencies on application state or GenServers; test connectivity with IOTA testnet
-- **lib/iota_service/store/credential_store.ex** — Implement on-chain credential revocation via revocation bitmaps when `iota_credential_nif` adds support for revocation operations
+- **lib/tangle_gate/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
+- **lib/tangle_gate/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
+- **lib/tangle_gate/credential/verifier.ex** (L21) — Verify that the module is truly self-contained and has no hidden dependencies on application state or GenServers; test connectivity with IOTA testnet
+- **lib/tangle_gate/store/credential_store.ex** — Implement on-chain credential revocation via revocation bitmaps when `iota_credential_nif` adds support for revocation operations
 
 
 ## License

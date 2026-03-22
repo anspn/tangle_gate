@@ -2,7 +2,7 @@ import Config
 
 # IOTA Service base configuration
 # Defaults target the IOTA Rebased testnet — no local node required.
-config :iota_service,
+config :tangle_gate,
   # IOTA Rebased testnet node URL
   node_url: "https://api.testnet.iota.cafe",
   faucet_url: "https://faucet.testnet.iota.cafe/gas",
@@ -19,7 +19,7 @@ config :iota_service,
   ttyd_url: "http://localhost:7681"
 
 # JWT Authentication
-config :iota_service, IotaService.Web.Auth,
+config :tangle_gate, TangleGate.Web.Auth,
   secret: "dev-secret-please-change-in-production",
   token_ttl_seconds: 3600,
   users: [
@@ -34,17 +34,17 @@ config :iota_service, IotaService.Web.Auth,
   ]
 
 # MongoDB
-config :iota_service, IotaService.Store.Repo,
-  url: "mongodb://localhost:27017/iota_service",
+config :tangle_gate, TangleGate.Store.Repo,
+  url: "mongodb://localhost:27017/tangle_gate",
   pool_size: 5
 
 # Vault — disabled by default in dev (secrets come from config/env)
-config :iota_service, IotaService.Vault.Client,
+config :tangle_gate, TangleGate.Vault.Client,
   enabled: false,
   addr: "http://localhost:8200",
   token: "dev-root-token",
   mount: "secret",
-  secret_path: "iota_service"
+  secret_path: "tangle_gate"
 
 # Joken default signer (not used — we configure our own in Web.Auth)
 config :joken, default_signer: nil

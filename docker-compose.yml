@@ -1,5 +1,5 @@
 # =============================================================================
-# Docker Compose for iota_service
+# Docker Compose for tangle_gate
 # =============================================================================
 # Usage:
 #   docker compose up -d          # start all services
@@ -12,7 +12,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: iota_service
+    container_name: tangle_gate
     env_file: .env
     volumes:
       # Shared session recording volume (app writes pending files, reads history)
@@ -24,7 +24,7 @@ services:
       # Default: IOTA testnet (override with IOTA_NODE_URL in .env for local node)
       IOTA_NODE_URL: "${IOTA_NODE_URL:-https://api.testnet.iota.cafe}"
       # MongoDB connection (internal Docker network)
-      MONGO_URL: "mongodb://${MONGO_USERNAME:-iota}:${MONGO_PASSWORD}@mongo:27017/iota_service?authSource=admin"
+      MONGO_URL: "mongodb://${MONGO_USERNAME:-iota}:${MONGO_PASSWORD}@mongo:27017/tangle_gate?authSource=admin"
       # Vault connection (internal Docker network)
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: "${VAULT_ROOT_TOKEN}"
@@ -61,7 +61,7 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: "${MONGO_USERNAME:-iota}"
       MONGO_INITDB_ROOT_PASSWORD: "${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env}"
-      MONGO_INITDB_DATABASE: iota_service
+      MONGO_INITDB_DATABASE: tangle_gate
     ports:
       - "${MONGO_PORT:-27017}:27017"
     restart: unless-stopped

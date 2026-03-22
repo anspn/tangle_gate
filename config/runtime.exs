@@ -19,7 +19,7 @@ if config_env() == :prod do
   end
 
   # --- IOTA Node (defaults to testnet) ---
-  config :iota_service,
+  config :tangle_gate,
     node_url: env.("IOTA_NODE_URL", "https://api.testnet.iota.cafe"),
     faucet_url: env.("IOTA_FAUCET_URL", "https://faucet.testnet.iota.cafe/gas"),
     identity_pkg_id: env.("IOTA_IDENTITY_PKG_ID", ""),
@@ -40,24 +40,24 @@ if config_env() == :prod do
       val -> String.to_integer(val)
     end
 
-  config :iota_service, port: port
+  config :tangle_gate, port: port
 
   # --- MongoDB ---
-  mongo_url = env.("MONGO_URL", "mongodb://localhost:27017/iota_service")
+  mongo_url = env.("MONGO_URL", "mongodb://localhost:27017/tangle_gate")
 
-  config :iota_service, IotaService.Store.Repo,
+  config :tangle_gate, TangleGate.Store.Repo,
     url: mongo_url,
     pool_size: String.to_integer(env.("MONGO_POOL_SIZE", "10"))
 
   # --- Vault ---
   vault_enabled = env.("VAULT_ENABLED", "true") == "true"
 
-  config :iota_service, IotaService.Vault.Client,
+  config :tangle_gate, TangleGate.Vault.Client,
     enabled: vault_enabled,
     addr: env.("VAULT_ADDR", "http://localhost:8200"),
     token: env.("VAULT_TOKEN", ""),
     mount: env.("VAULT_MOUNT", "secret"),
-    secret_path: env.("VAULT_SECRET_PATH", "iota_service")
+    secret_path: env.("VAULT_SECRET_PATH", "tangle_gate")
 
   # --- JWT Auth ---
   secret =
@@ -77,7 +77,7 @@ if config_env() == :prod do
   user_password = env.("USER_PASSWORD", nil)
   verifier_password = env.("VERIFIER_PASSWORD", nil)
 
-  config :iota_service, IotaService.Web.Auth,
+  config :tangle_gate, TangleGate.Web.Auth,
     secret: secret,
     token_ttl_seconds: String.to_integer(env.("TOKEN_TTL_SECONDS", "3600")),
     users:

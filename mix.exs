@@ -1,9 +1,9 @@
-defmodule IotaService.MixProject do
+defmodule TangleGate.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :iota_service,
+      app: :tangle_gate,
       version: "0.10.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
@@ -16,7 +16,7 @@ defmodule IotaService.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {IotaService.Application, []}
+      mod: {TangleGate.Application, []}
     ]
   end
 
@@ -56,7 +56,7 @@ defmodule IotaService.MixProject do
 
   defp releases do
     [
-      iota_service: [
+      tangle_gate: [
         include_executables_for: [:unix],
         applications: [runtime_tools: :permanent]
       ]

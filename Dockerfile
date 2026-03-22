@@ -1,5 +1,5 @@
 # =============================================================================
-# Dockerfile for iota_service
+# Dockerfile for tangle_gate
 # Multi-stage build: Rust NIF compilation → Elixir build → minimal runtime
 # =============================================================================
 
@@ -85,7 +85,7 @@ WORKDIR /app
 RUN groupadd --system iota && useradd --system --gid iota iota
 
 # Copy the release from the build stage
-COPY --from=build --chown=iota:iota /app/_build/prod/rel/iota_service ./
+COPY --from=build --chown=iota:iota /app/_build/prod/rel/tangle_gate ./
 
 # Create sessions directory (shared volume mount point)
 RUN mkdir -p /data/sessions/pending && chown -R iota:iota /data/sessions
@@ -100,4 +100,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:4000/api/health || exit 1
 
 ENV HOME=/app
-CMD ["bin/iota_service", "start"]
+CMD ["bin/tangle_gate", "start"]
