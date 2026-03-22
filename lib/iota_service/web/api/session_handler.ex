@@ -11,6 +11,7 @@ defmodule IotaService.Web.API.SessionHandler do
   ## Endpoints
 
   - `POST   /api/sessions`              — Start a new recording session (VP required)
+  - `POST   /api/sessions/create-vp`    — Create a VP for portal session start (credential + private key)
   - `POST   /api/sessions/:id/end`      — End a session (triggers notarization)
   - `GET    /api/sessions`              — List sessions (admin: all, user: own)
   - `GET    /api/sessions/:id`          — Get session details
@@ -111,6 +112,38 @@ defmodule IotaService.Web.API.SessionHandler do
 
       true ->
         start_session_with_vp(conn, presentation_jwt, challenge, holder_did, user)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/sessions/create-vp — Create a VP for portal session start
+  #
+  # Takes credential_jwt + private_key_jwk from the user.
+  # Server looks up the user's DID/fragment from MongoDB, resolves the DID
+  # document on-chain, generates a challenge, and creates a VP.
+  # Returns the VP JWT, challenge, and holder DID for use with POST /.
+  # ---------------------------------------------------------------------------
+  post "/create-vp" do
+    params = conn.body_params || %{}
+    credential_jwt = params["credential_jwt"]
+    private_key_jwk = params["private_key_jwk"]
+    user = conn.assigns[:current_user]
+
+    cond do
+      is_nil(credential_jwt) || credential_jwt == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: credential_jwt"
+        })
+
+      is_nil(private_key_jwk) || private_key_jwk == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: private_key_jwk"
+        })
+
+      true ->
+        do_create_vp_for_session(conn, credential_jwt, private_key_jwk, user)
     end
   end
 
@@ -279,7 +312,90 @@ defmodule IotaService.Web.API.SessionHandler do
   end
 
   # ===========================================================================
-  # Private — VP-based session creation
+  # Private — VP creation for portal (user provides credential + private key)
+  # ===========================================================================
+
+  defp do_create_vp_for_session(conn, credential_jwt, private_key_jwk, user) do
+    alias IotaService.Store.UserStore
+
+    # 1. Look up the user's DID and fragment from MongoDB
+    case UserStore.get_user_by_email(user.email) do
+      {:ok, db_user} ->
+        cond do
+          is_nil(db_user.did) ->
+            Helpers.json(conn, 422, %{
+              error: "no_did",
+              message: "No DID assigned to your account. Ask an admin to assign one."
+            })
+
+          is_nil(db_user.verification_method_fragment) ->
+            Helpers.json(conn, 422, %{
+              error: "missing_fragment",
+              message: "Verification method fragment not stored. Ask an admin to re-assign your DID."
+            })
+
+          db_user.authorized != true ->
+            Helpers.json(conn, 403, %{
+              error: "not_authorized",
+              message: "Your account is not authorized for terminal access. Contact an admin."
+            })
+
+          true ->
+            do_build_vp(conn, credential_jwt, private_key_jwk, db_user)
+        end
+
+      :not_found ->
+        Helpers.json(conn, 404, %{
+          error: "user_not_found",
+          message: "User account not found in database"
+        })
+    end
+  end
+
+  defp do_build_vp(conn, credential_jwt, private_key_jwk, db_user) do
+    node_url = Application.get_env(:iota_service, :node_url, "https://api.testnet.iota.cafe")
+    identity_pkg_id = Application.get_env(:iota_service, :identity_pkg_id, "")
+
+    # 2. Resolve the user's DID document on-chain
+    case Verifier.resolve_did_document(db_user.did, node_url, identity_pkg_id) do
+      {:ok, holder_doc_json} ->
+        # 3. Generate challenge and create VP
+        {:ok, challenge} = ChallengeCache.generate_challenge()
+        cred_jwts_json = Jason.encode!([credential_jwt])
+
+        case CredServer.create_presentation(
+               holder_doc_json,
+               cred_jwts_json,
+               challenge,
+               300,
+               private_key_jwk,
+               db_user.verification_method_fragment
+             ) do
+          {:ok, %{"presentation_jwt" => presentation_jwt, "holder_did" => holder_did}} ->
+            Helpers.json(conn, 201, %{
+              presentation_jwt: presentation_jwt,
+              challenge: challenge,
+              holder_did: holder_did,
+              message: "VP created. Submit it to start a session."
+            })
+
+          {:error, reason} ->
+            Helpers.json(conn, 422, %{
+              error: "presentation_failed",
+              message: "Failed to create VP: #{inspect(reason)}"
+            })
+        end
+
+      {:error, reason} ->
+        Helpers.json(conn, 422, %{
+          error: "did_resolution_failed",
+          message: "Could not resolve your DID on-chain: #{inspect(reason)}"
+        })
+    end
+  end
+
+  # ===========================================================================
+  # Private — VP-based session creation (manual VP submission)
   # ===========================================================================
 
   defp start_session_with_vp(conn, presentation_jwt, challenge, holder_did, user) do

@@ -199,16 +199,18 @@ defmodule IotaService do
   - `holder_did` — The subject/holder's DID string
   - `credential_type` — Credential type (e.g., "TangleGateAccessCredential")
   - `claims_json` — JSON string of credential claims
+  - `private_key_jwk` — The issuer's private key JWK (JSON string)
+  - `fragment` — The issuer's verification method fragment
 
   ## Examples
 
       claims = Jason.encode!(%{"role" => "user", "email" => "alice@example.com"})
-      {:ok, result} = IotaService.create_credential(issuer_doc, holder_did, "AccessCredential", claims)
+      {:ok, result} = IotaService.create_credential(issuer_doc, holder_did, "AccessCredential", claims, key, frag)
       credential_jwt = result["credential_jwt"]
   """
-  @spec create_credential(String.t(), String.t(), String.t(), String.t()) ::
+  @spec create_credential(String.t(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  defdelegate create_credential(issuer_doc_json, holder_did, credential_type, claims_json),
+  defdelegate create_credential(issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment),
     to: Credential.Server
 
   @doc """
@@ -239,14 +241,18 @@ defmodule IotaService do
   - `credential_jwts_json` — JSON array of credential JWT strings
   - `challenge` — Nonce for replay protection (pass "" to omit)
   - `expires_in_seconds` — Expiration in seconds from now (default: 600, 0 = no expiry)
+  - `private_key_jwk` — The holder's private key JWK (JSON string)
+  - `fragment` — The holder's verification method fragment
   """
-  @spec create_presentation(String.t(), String.t(), String.t(), non_neg_integer()) ::
+  @spec create_presentation(String.t(), String.t(), String.t(), non_neg_integer(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   defdelegate create_presentation(
                 holder_doc_json,
                 credential_jwts_json,
                 challenge,
-                expires_in_seconds \\ 600
+                expires_in_seconds \\ 600,
+                private_key_jwk,
+                fragment
               ),
               to: Credential.Server
 

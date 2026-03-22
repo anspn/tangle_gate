@@ -77,4 +77,63 @@
     </form>
     <pre id="revoke-did-result" class="result-box" style="display:none;"></pre>
   </article>
+
+  <!-- User Management ------------------------------------------------------->
+  <article>
+    <header>
+      <h3>User Management</h3>
+      <small>Create dynamic users and assign DIDs for 2FA login.</small>
+    </header>
+
+    <!-- Create user -->
+    <form id="create-user-form" onsubmit="return false;" style="margin-bottom:1.5rem;">
+      <div class="grid">
+        <label>
+          Email
+          <input type="email" id="user-email" placeholder="user@example.com" required />
+        </label>
+        <label>
+          Password
+          <input type="password" id="user-password" placeholder="Strong password" required />
+        </label>
+        <label>
+          Role
+          <select id="user-role">
+            <option value="user" selected>user</option>
+            <option value="verifier">verifier</option>
+          </select>
+        </label>
+      </div>
+      <button type="submit" id="btn-create-user" class="outline">Create User</button>
+    </form>
+    <div id="create-user-status" class="notice" style="display:none;"></div>
+
+    <!-- User list -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+      <h4 style="margin:0;">Provisioned Users</h4>
+      <button id="btn-refresh-users" class="outline secondary" style="width:auto;padding:0.25rem 0.75rem;">Refresh</button>
+    </div>
+    <div id="users-empty" style="display:none;">
+      <p><em>No users found.</em></p>
+    </div>
+    <figure style="overflow-x:auto;">
+      <table id="users-table" role="grid" style="display:none;">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Role</th>
+            <th>DID</th>
+            <th>Authorized</th>
+            <th>Source</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </figure>
+
+    <!-- Assign DID modal/result area -->
+    <div id="assign-did-result" class="notice" style="display:none;"></div>
+    <pre id="assign-did-doc-result" class="result-box" style="display:none;"></pre>
+  </article>
 </section>

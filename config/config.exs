@@ -25,7 +25,12 @@ config :iota_service, IotaService.Web.Auth,
   users: [
     %{id: "usr_admin", email: "admin@iota.local", password: "iota_admin_2026", role: "admin"},
     %{id: "usr_user", email: "user@iota.local", password: "iota_user_2026", role: "user"},
-    %{id: "usr_verifier", email: "verifier@iota.local", password: "iota_verifier_2026", role: "verifier"}
+    %{
+      id: "usr_verifier",
+      email: "verifier@iota.local",
+      password: "iota_verifier_2026",
+      role: "verifier"
+    }
   ]
 
 # MongoDB

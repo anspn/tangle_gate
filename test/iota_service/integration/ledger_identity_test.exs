@@ -34,10 +34,7 @@ defmodule IotaService.Integration.LedgerIdentityTest do
 
     node_url = System.get_env("IOTA_TEST_NODE_URL", "https://api.testnet.iota.cafe")
 
-    {:ok,
-     secret_key: secret_key,
-     identity_pkg_id: identity_pkg_id,
-     node_url: node_url}
+    {:ok, secret_key: secret_key, identity_pkg_id: identity_pkg_id, node_url: node_url}
   end
 
   setup %{secret_key: sk} do
@@ -132,7 +129,8 @@ defmodule IotaService.Integration.LedgerIdentityTest do
     test "returns error for resolve of non-existent DID", ctx do
       if ctx[:skip], do: flunk("IOTA_TEST_SECRET_KEY not set")
 
-      fake_did = "did:iota:88ccb5ca:0x0000000000000000000000000000000000000000000000000000000000000000"
+      fake_did =
+        "did:iota:88ccb5ca:0x0000000000000000000000000000000000000000000000000000000000000000"
 
       result =
         IotaService.resolve_did(fake_did,

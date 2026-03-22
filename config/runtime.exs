@@ -79,8 +79,7 @@ if config_env() == :prod do
 
   config :iota_service, IotaService.Web.Auth,
     secret: secret,
-    token_ttl_seconds:
-      String.to_integer(env.("TOKEN_TTL_SECONDS", "3600")),
+    token_ttl_seconds: String.to_integer(env.("TOKEN_TTL_SECONDS", "3600")),
     users:
       [
         %{

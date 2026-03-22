@@ -34,6 +34,7 @@ defmodule IotaService.Store.CredentialStore do
       "did" => did,
       "document" => document,
       "verification_method_fragment" => Map.get(identity, :verification_method_fragment),
+      "private_key_jwk" => Map.get(identity, :private_key_jwk),
       "network" => Map.get(identity, :network) |> to_string(),
       "published_at" => Map.get(identity, :published_at, DateTime.utc_now()),
       "updated_at" => DateTime.utc_now()
@@ -72,6 +73,7 @@ defmodule IotaService.Store.CredentialStore do
            did: doc["did"],
            document: doc["document"],
            verification_method_fragment: doc["verification_method_fragment"],
+           private_key_jwk: doc["private_key_jwk"],
            network: doc["network"],
            published_at: doc["published_at"],
            updated_at: doc["updated_at"]
@@ -151,6 +153,73 @@ defmodule IotaService.Store.CredentialStore do
 
     Logger.info("MongoDB indexes ensured for #{@credentials_collection}")
     :ok
+  end
+
+  # ============================================================================
+  # Revocation
+  # ============================================================================
+
+  @doc """
+  Revoke all active credentials for a given holder DID.
+
+  This marks all non-revoked credentials for the holder as revoked in
+  MongoDB. The NIF does not currently expose on-chain revocation bitmap
+  operations, so revocation is tracked server-side.
+
+  ## TODO: Implement on-chain revocation via revocation bitmaps when the
+  ## iota_credential_nif adds support for revocation operations.
+  """
+  @spec revoke_credentials_for_holder(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def revoke_credentials_for_holder(holder_did) do
+    case Mongo.update_many(
+           Repo.pool(),
+           @credentials_collection,
+           %{"holder_did" => holder_did, "revoked" => false},
+           %{"$set" => %{"revoked" => true, "revoked_at" => DateTime.utc_now()}}
+         ) do
+      {:ok, %Mongo.UpdateResult{modified_count: count}} ->
+        if count > 0 do
+          Logger.info("Revoked #{count} credential(s) for holder #{holder_did}")
+        end
+
+        {:ok, count}
+
+      {:error, reason} ->
+        Logger.error("Failed to revoke credentials for #{holder_did}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Check if a specific credential has been revoked.
+  """
+  @spec credential_revoked?(String.t()) :: boolean()
+  def credential_revoked?(credential_id) do
+    case Mongo.find_one(Repo.pool(), @credentials_collection, %{
+           "credential_id" => credential_id,
+           "revoked" => true
+         }) do
+      nil -> false
+      _ -> true
+    end
+  end
+
+  @doc """
+  Check if ALL credentials for a holder DID have been revoked.
+
+  Returns `true` if the holder has credentials and all are revoked,
+  or if the holder has no credentials at all.
+  Returns `false` if any active (non-revoked) credential exists.
+  """
+  @spec all_credentials_revoked?(String.t()) :: boolean()
+  def all_credentials_revoked?(holder_did) do
+    case Mongo.find_one(Repo.pool(), @credentials_collection, %{
+           "holder_did" => holder_did,
+           "revoked" => false
+         }) do
+      nil -> true
+      _ -> false
+    end
   end
 
   # ============================================================================

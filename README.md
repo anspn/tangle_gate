@@ -8,6 +8,9 @@ management and data notarization.
 - **DID Generation**: Create IOTA DIDs with Ed25519 verification methods
 - **Verifiable Credentials**: Issue and verify W3C Verifiable Credentials as signed JWTs
 - **Verifiable Presentations**: Create and verify W3C Verifiable Presentations with challenge/expiry
+- **DID-based 2FA**: Login with email/password + DID triggers credential issuance and revocation
+- **User Management**: Admin can create dynamic users, assign DIDs, and authorize/unauthorize terminal access
+- **Credential Revocation**: Server-side revocation tracking in MongoDB (TODO: on-chain via revocation bitmaps)
 - **Notarization**: Timestamp and hash-anchor data for Tangle submission
 - **Supervised Architecture**: Fault-tolerant supervision tree
 - **NIF Integration**: Uses Rust NIFs for cryptographic operations
@@ -194,6 +197,7 @@ MIX_ENV=local mix test
 - **lib/iota_service/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
 - **lib/iota_service/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
 - **lib/iota_service/credential/verifier.ex** (L21) — Verify that the module is truly self-contained and has no hidden dependencies on application state or GenServers; test connectivity with IOTA testnet
+- **lib/iota_service/store/credential_store.ex** — Implement on-chain credential revocation via revocation bitmaps when `iota_credential_nif` adds support for revocation operations
 
 
 ## License

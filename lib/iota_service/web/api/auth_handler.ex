@@ -2,12 +2,27 @@ defmodule IotaService.Web.API.AuthHandler do
   @moduledoc """
   Authentication API handler.
 
+  ## Login Flows
+
+  1. **Email + Password** (`POST /login`) — Standard auth, returns JWT.
+     If the user provides a `did`, the server verifies the DID is assigned
+     to the user's account (ownership check) but does **not** issue a credential.
+     Credentials are issued separately via the admin Authorize workflow.
+
+  2. **VP-based** (`POST /present-with-credential`) — User submits their
+     DID document (with keys) + credential JWT + challenge. Server creates a VP,
+     verifies it, checks revocation status, and issues a JWT.
+
+  3. **Raw VP** (`POST /present`) — User submits a pre-built VP JWT +
+     challenge + holder DID. Server resolves the DID on-chain, verifies
+     the VP, checks revocation, and issues a JWT.
+
   ## Endpoints
 
-  - `POST /api/auth/login`                    — Authenticate with email/password, receive JWT
-  - `GET  /api/auth/challenge`                — Get a fresh challenge nonce for VP-based auth
+  - `POST /api/auth/login`                    — Email/password login (optional DID ownership check)
+  - `GET  /api/auth/challenge`                — Get a challenge nonce for VP-based auth
   - `POST /api/auth/present`                  — Authenticate with a pre-built VP JWT
-  - `POST /api/auth/present-with-credential`  — VP login from holder doc + credential (creates VP server-side)
+  - `POST /api/auth/present-with-credential`  — VP login from holder doc + credential
   """
 
   use Plug.Router
@@ -15,23 +30,47 @@ defmodule IotaService.Web.API.AuthHandler do
   alias IotaService.Credential.ChallengeCache
   alias IotaService.Credential.Server, as: CredServer
   alias IotaService.Credential.Verifier
+  alias IotaService.Store.CredentialStore
   alias IotaService.Web.API.Helpers
   alias IotaService.Web.Auth
 
   plug(:match)
   plug(:dispatch)
 
-  # POST /api/auth/login
+  # POST /api/auth/login — Email/password login with optional DID-based 2FA
   post "/login" do
     with {:ok, %{"email" => email, "password" => password}} <-
            Helpers.require_fields(conn.body_params, ["email", "password"]),
          {:ok, user} <- Auth.authenticate(email, password),
          {:ok, token, claims} <- Auth.generate_token(user) do
-      Helpers.json(conn, 200, %{
-        token: token,
-        expires_at: format_exp(claims["exp"]),
-        user: %{id: user.id, email: user.email, role: user.role}
-      })
+      # Check if user is providing a DID for ownership verification
+      did = (conn.body_params || %{})["did"]
+
+      if did && did != "" do
+        # Verify DID is assigned to this user, but don't issue a credential
+        case verify_did_ownership(user, did) do
+          :ok ->
+            Helpers.json(conn, 200, %{
+              token: token,
+              expires_at: format_exp(claims["exp"]),
+              user: %{id: user.id, email: user.email, role: user.role},
+              holder_did: did,
+              message: "Login successful. DID ownership verified."
+            })
+
+          {:error, message} ->
+            Helpers.json(conn, 403, %{
+              error: "did_mismatch",
+              message: message
+            })
+        end
+      else
+        Helpers.json(conn, 200, %{
+          token: token,
+          expires_at: format_exp(claims["exp"]),
+          user: %{id: user.id, email: user.email, role: user.role}
+        })
+      end
     else
       {:error, [:password]} ->
         Helpers.validation_error(conn, "Password is required")
@@ -111,6 +150,8 @@ defmodule IotaService.Web.API.AuthHandler do
     holder_doc_json = params["holder_doc_json"]
     credential_jwt = params["credential_jwt"]
     challenge = params["challenge"]
+    private_key_jwk = params["private_key_jwk"]
+    fragment = params["fragment"]
 
     cond do
       is_nil(holder_doc_json) || holder_doc_json == "" ->
@@ -131,13 +172,55 @@ defmodule IotaService.Web.API.AuthHandler do
           message: "Required parameter missing: challenge"
         })
 
+      is_nil(private_key_jwk) || private_key_jwk == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: private_key_jwk"
+        })
+
+      is_nil(fragment) || fragment == "" ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: fragment"
+        })
+
       true ->
-        do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge)
+        do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge, private_key_jwk, fragment)
     end
   end
 
   match _ do
     Helpers.json(conn, 404, %{error: "not_found", message: "Auth route not found"})
+  end
+
+  # ===========================================================================
+  # Private — DID ownership verification
+  # ===========================================================================
+
+  defp verify_did_ownership(user, did) do
+    # For static config users, accept any DID (no DID assignment in config)
+    # For dynamic users, the DID must match what's assigned to their account
+    if Application.get_env(:iota_service, :start_repo, true) do
+      case IotaService.Store.UserStore.get_user_by_email(user.email) do
+        {:ok, db_user} ->
+          cond do
+            db_user.did == did ->
+              :ok
+
+            is_nil(db_user.did) ->
+              {:error, "No DID assigned to your account. Ask an admin to assign one."}
+
+            true ->
+              {:error, "DID does not match the one assigned to your account"}
+          end
+
+        :not_found ->
+          # Static config user — no DID assignment, accept any
+          :ok
+      end
+    else
+      :ok
+    end
   end
 
   # ===========================================================================
@@ -212,31 +295,41 @@ defmodule IotaService.Web.API.AuthHandler do
                challenge
              ) do
           {:ok, %{"valid" => true} = result} ->
-            # 5. Extract claims from the VC to determine user role
-            claims = extract_claims_from_vp(result, holder_doc_json, issuer_doc)
+            # 5. Check revocation status in MongoDB
+            if credential_revoked_for_holder?(holder_did) do
+              Helpers.json(conn, 401, %{
+                error: "credential_revoked",
+                message:
+                  "Your credential has been revoked. " <>
+                    "Log in with email/password and provide your DID to get a new one."
+              })
+            else
+              # 6. Extract claims from the VC to determine user role
+              claims = extract_claims_from_vp(result, holder_doc_json, issuer_doc)
 
-            user = %{
-              id: holder_did,
-              email: Map.get(claims, "email", holder_did),
-              role: Map.get(claims, "role", "user") |> to_string()
-            }
+              user = %{
+                id: holder_did,
+                email: Map.get(claims, "email", holder_did),
+                role: Map.get(claims, "role", "user") |> to_string()
+              }
 
-            case Auth.generate_token(user) do
-              {:ok, token, token_claims} ->
-                Helpers.json(conn, 200, %{
-                  token: token,
-                  expires_at: format_exp(token_claims["exp"]),
-                  user: %{id: user.id, email: user.email, role: user.role},
-                  holder_did: holder_did,
-                  credential_count: result["credential_count"],
-                  auth_method: "verifiable_presentation"
-                })
+              case Auth.generate_token(user) do
+                {:ok, token, token_claims} ->
+                  Helpers.json(conn, 200, %{
+                    token: token,
+                    expires_at: format_exp(token_claims["exp"]),
+                    user: %{id: user.id, email: user.email, role: user.role},
+                    holder_did: holder_did,
+                    credential_count: result["credential_count"],
+                    auth_method: "verifiable_presentation"
+                  })
 
-              {:error, reason} ->
-                Helpers.json(conn, 500, %{
-                  error: "token_generation_failed",
-                  message: "VP verified but token generation failed: #{inspect(reason)}"
-                })
+                {:error, reason} ->
+                  Helpers.json(conn, 500, %{
+                    error: "token_generation_failed",
+                    message: "VP verified but token generation failed: #{inspect(reason)}"
+                  })
+              end
             end
 
           {:ok, %{"valid" => false}} ->
@@ -255,13 +348,14 @@ defmodule IotaService.Web.API.AuthHandler do
   end
 
   defp extract_claims_from_vp(vp_result, _holder_doc_json, issuer_doc) do
-    # The VP contains credential JWTs; verify the first one to extract claims
+    # Verify the first credential JWT against the server's issuer DID document
     case Map.get(vp_result, "credentials", []) do
       [first_cred_jwt | _] ->
         case Verifier.verify_credential(first_cred_jwt, issuer_doc) do
           {:ok, %{"claims" => claims_json}} when is_binary(claims_json) ->
             case Jason.decode(claims_json) do
-              {:ok, claims} -> claims
+              {:ok, %{"credentialSubject" => claims}} when is_map(claims) -> claims
+              {:ok, claims} when is_map(claims) -> claims
               _ -> %{}
             end
 
@@ -276,7 +370,7 @@ defmodule IotaService.Web.API.AuthHandler do
 
   # -- Helpers ---------------------------------------------------------------
 
-  defp do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge) do
+  defp do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge, private_key_jwk, fragment) do
     # 1. Consume the challenge (single-use)
     case ChallengeCache.consume_challenge(challenge) do
       :not_found ->
@@ -293,12 +387,19 @@ defmodule IotaService.Web.API.AuthHandler do
         })
 
       :ok ->
-        # 2. Create VP from holder doc + credential
+        # 2. Create VP from holder doc + credential using the holder's key
         cred_jwts_json = Jason.encode!([credential_jwt])
 
-        case CredServer.create_presentation(holder_doc_json, cred_jwts_json, challenge, 300) do
+        case CredServer.create_presentation(
+               holder_doc_json,
+               cred_jwts_json,
+               challenge,
+               300,
+               private_key_jwk,
+               fragment
+             ) do
           {:ok, %{"presentation_jwt" => presentation_jwt, "holder_did" => holder_did}} ->
-            # 3. Verify the VP we just created
+            # 3. Verify the VP cryptographically
             verify_and_authenticate(
               conn,
               presentation_jwt,
@@ -313,6 +414,14 @@ defmodule IotaService.Web.API.AuthHandler do
               message: "Failed to create VP: #{inspect(reason)}"
             })
         end
+    end
+  end
+
+  defp credential_revoked_for_holder?(holder_did) do
+    if Application.get_env(:iota_service, :start_repo, true) do
+      CredentialStore.all_credentials_revoked?(holder_did)
+    else
+      false
     end
   end
 

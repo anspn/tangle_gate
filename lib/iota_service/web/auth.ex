@@ -5,6 +5,13 @@ defmodule IotaService.Web.Auth do
   Uses Joken with HS256 signing.  Tokens carry the user id, email,
   and a standard `exp` claim.
 
+  ## User Resolution
+
+  Authentication checks MongoDB-backed dynamic users first, then falls
+  back to the static users defined in the application config. This allows
+  the three bootstrap accounts (admin, user, verifier) to always work
+  while supporting dynamic user creation by the admin.
+
   ## Configuration
 
       config :iota_service, IotaService.Web.Auth,
@@ -27,15 +34,39 @@ defmodule IotaService.Web.Auth do
   @doc """
   Authenticate a user by email and password.
 
-  Returns `{:ok, user}` on success or `{:error, :invalid_credentials}`.
+  Tries MongoDB-backed dynamic users first, then falls back to static
+  config users. Returns `{:ok, user}` on success or `{:error, :invalid_credentials}`.
   """
   @spec authenticate(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_credentials}
   def authenticate(email, password) do
-    users()
-    |> Enum.find(fn u -> u.email == email and u.password == password end)
-    |> case do
-      nil -> {:error, :invalid_credentials}
-      user -> {:ok, Map.take(user, [:id, :email, :role])}
+    # 1. Try dynamic users (MongoDB) if repo is enabled
+    case authenticate_dynamic(email, password) do
+      {:ok, user} ->
+        {:ok, user}
+
+      {:error, :invalid_credentials} ->
+        # 2. Fall back to static config users
+        authenticate_static(email, password)
+
+      {:error, :repo_disabled} ->
+        authenticate_static(email, password)
+    end
+  end
+
+  @doc """
+  Look up a user by email across both dynamic and static stores.
+
+  Returns `{:ok, user}` or `:not_found`.
+  """
+  @spec get_user(String.t()) :: {:ok, map()} | :not_found
+  def get_user(email) do
+    if Application.get_env(:iota_service, :start_repo, true) do
+      case IotaService.Store.UserStore.get_user_by_email(email) do
+        {:ok, user} -> {:ok, Map.drop(user, [:password_hash, :salt])}
+        :not_found -> get_static_user(email)
+      end
+    else
+      get_static_user(email)
     end
   end
 
@@ -107,6 +138,34 @@ defmodule IotaService.Web.Auth do
       %{} = m -> m
       m when is_list(m) -> Map.new(m, fn {k, v} -> {k, v} end)
     end)
+  end
+
+  defp authenticate_dynamic(email, password) do
+    if Application.get_env(:iota_service, :start_repo, true) do
+      IotaService.Store.UserStore.authenticate(email, password)
+    else
+      {:error, :repo_disabled}
+    end
+  rescue
+    _ -> {:error, :repo_disabled}
+  end
+
+  defp authenticate_static(email, password) do
+    users()
+    |> Enum.find(fn u -> u.email == email and u.password == password end)
+    |> case do
+      nil -> {:error, :invalid_credentials}
+      user -> {:ok, Map.take(user, [:id, :email, :role])}
+    end
+  end
+
+  defp get_static_user(email) do
+    users()
+    |> Enum.find(fn u -> u.email == email end)
+    |> case do
+      nil -> :not_found
+      user -> {:ok, Map.take(user, [:id, :email, :role])}
+    end
   end
 
   defp config do

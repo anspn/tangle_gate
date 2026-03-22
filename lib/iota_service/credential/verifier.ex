@@ -60,7 +60,8 @@ defmodule IotaService.Credential.Verifier do
   @spec verify_credential(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def verify_credential(credential_jwt, issuer_doc_json)
       when is_binary(credential_jwt) and is_binary(issuer_doc_json) do
-    with {:ok, json} <- call_nif(@credential_nif, :verify_credential, [credential_jwt, issuer_doc_json]),
+    with {:ok, json} <-
+           call_nif(@credential_nif, :verify_credential, [credential_jwt, issuer_doc_json]),
          {:ok, parsed} <- Jason.decode(json) do
       {:ok, parsed}
     end
@@ -139,7 +140,8 @@ defmodule IotaService.Credential.Verifier do
          {:ok, issuer_dids} <- extract_issuer_dids(presentation_jwt, holder_doc_json, opts),
          {:ok, issuer_docs} <- resolve_issuer_documents(issuer_dids, node_url, identity_pkg_id),
          issuer_docs_json <- Jason.encode!(issuer_docs),
-         {:ok, result} <- verify_presentation(presentation_jwt, holder_doc_json, issuer_docs_json, challenge) do
+         {:ok, result} <-
+           verify_presentation(presentation_jwt, holder_doc_json, issuer_docs_json, challenge) do
       {:ok, Map.merge(result, %{"holder_did_resolved" => true, "issuer_dids_resolved" => true})}
     end
   end

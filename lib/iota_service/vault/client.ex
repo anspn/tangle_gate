@@ -126,8 +126,85 @@ defmodule IotaService.Vault.Client do
           :ok
 
         {:error, reason} ->
-          Logger.warning("Could not load Vault secrets: #{inspect(reason)} — continuing with env config")
+          Logger.warning(
+            "Could not load Vault secrets: #{inspect(reason)} — continuing with env config"
+          )
+
           :ok
+      end
+    end
+  end
+
+  @doc """
+  Read the server DID identity from Vault.
+
+  Stored under `<mount>/data/<secret_path>/server_did`.
+
+  Returns `{:ok, identity_map}` or `{:error, reason}`.
+  """
+  @spec read_server_did() :: {:ok, map()} | {:error, term()}
+  def read_server_did do
+    config = vault_config()
+
+    unless Keyword.get(config, :enabled, false) do
+      {:error, :vault_disabled}
+    else
+      secret_path = Keyword.get(config, :secret_path, "iota_service")
+      key = "#{secret_path}/server_did"
+
+      case read_secret(key) do
+        {:ok, data} when map_size(data) > 0 ->
+          {:ok, %{
+            did: data["did"],
+            document: data["document"],
+            verification_method_fragment: data["verification_method_fragment"],
+            private_key_jwk: data["private_key_jwk"],
+            network: data["network"],
+            published_at: data["published_at"]
+          }}
+
+        {:ok, _empty} ->
+          {:error, :not_found}
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  @doc """
+  Write the server DID identity to Vault for persistence across restarts.
+
+  Stored under `<mount>/data/<secret_path>/server_did`.
+  """
+  @spec write_server_did(map()) :: :ok | {:error, term()}
+  def write_server_did(%{did: did, document: document} = identity) do
+    config = vault_config()
+
+    unless Keyword.get(config, :enabled, false) do
+      Logger.debug("Vault disabled — skipping server DID write")
+      :ok
+    else
+      secret_path = Keyword.get(config, :secret_path, "iota_service")
+      key = "#{secret_path}/server_did"
+
+      data = %{
+        "did" => did,
+        "document" => document,
+        "verification_method_fragment" => Map.get(identity, :verification_method_fragment),
+        "private_key_jwk" => Map.get(identity, :private_key_jwk),
+        "network" => Map.get(identity, :network) |> to_string(),
+        "published_at" => Map.get(identity, :published_at) |> to_string()
+      }
+
+      case write_secret(key, data) do
+        :ok ->
+          Logger.info("Server DID written to Vault (#{key})")
+          :ok
+
+        {:error, reason} = error ->
+          Logger.warning("Failed to write server DID to Vault: #{inspect(reason)}")
+          error
       end
     end
   end

@@ -129,6 +129,7 @@ defmodule IotaService.Identity.Server do
           did: parsed["did"],
           document: parsed["document"],
           verification_method_fragment: parsed["verification_method_fragment"],
+          private_key_jwk: parsed["private_key_jwk"],
           network: network,
           generated_at: DateTime.utc_now()
         }
@@ -145,7 +146,11 @@ defmodule IotaService.Identity.Server do
     new_state =
       case result do
         {:ok, _} ->
-          %{state | generated_count: state.generated_count + 1, last_generation: DateTime.utc_now()}
+          %{
+            state
+            | generated_count: state.generated_count + 1,
+              last_generation: DateTime.utc_now()
+          }
 
         {:error, reason} ->
           %{state | errors: [{DateTime.utc_now(), reason} | Enum.take(state.errors, 99)]}
@@ -163,12 +168,19 @@ defmodule IotaService.Identity.Server do
            node_url <- ledger_opt(opts, :node_url),
            identity_pkg_id <- ledger_opt(opts, :identity_pkg_id, ""),
            gas_coin_id <- Keyword.get(opts, :gas_coin_id, ""),
-           {:ok, json} <- call_nif(:create_and_publish_did, [secret_key, node_url, identity_pkg_id, gas_coin_id]),
+           {:ok, json} <-
+             call_nif(:create_and_publish_did, [
+               secret_key,
+               node_url,
+               identity_pkg_id,
+               gas_coin_id
+             ]),
            {:ok, parsed} <- Jason.decode(json) do
         did_result = %{
           did: parsed["did"],
           document: parsed["document"],
           verification_method_fragment: parsed["verification_method_fragment"],
+          private_key_jwk: parsed["private_key_jwk"],
           network: parsed["network"],
           sender_address: parsed["sender_address"],
           published_at: DateTime.utc_now()
@@ -186,7 +198,11 @@ defmodule IotaService.Identity.Server do
     new_state =
       case result do
         {:ok, _} ->
-          %{state | published_count: state.published_count + 1, last_generation: DateTime.utc_now()}
+          %{
+            state
+            | published_count: state.published_count + 1,
+              last_generation: DateTime.utc_now()
+          }
 
         {:error, reason} ->
           %{state | errors: [{DateTime.utc_now(), reason} | Enum.take(state.errors, 99)]}
@@ -263,7 +279,8 @@ defmodule IotaService.Identity.Server do
     {:ok, Atom.to_string(network)}
   end
 
-  defp validate_network(network) when is_binary(network) and network in ["iota", "smr", "rms", "atoi"] do
+  defp validate_network(network)
+       when is_binary(network) and network in ["iota", "smr", "rms", "atoi"] do
     {:ok, network}
   end
 
@@ -281,8 +298,15 @@ defmodule IotaService.Identity.Server do
   defp ledger_opt(opts, key, default \\ nil) do
     Keyword.get_lazy(opts, key, fn ->
       case key do
-        :node_url -> Application.get_env(:iota_service, :node_url, default || "https://api.testnet.iota.cafe")
-        :identity_pkg_id -> Application.get_env(:iota_service, :identity_pkg_id, default || "")
+        :node_url ->
+          Application.get_env(
+            :iota_service,
+            :node_url,
+            default || "https://api.testnet.iota.cafe"
+          )
+
+        :identity_pkg_id ->
+          Application.get_env(:iota_service, :identity_pkg_id, default || "")
       end
     end)
   end
@@ -296,7 +320,9 @@ defmodule IotaService.Identity.Server do
       other -> {:ok, other}
     end
   catch
-    :error, :badarg -> {:error, :badarg}
+    :error, :badarg ->
+      {:error, :badarg}
+
     kind, reason ->
       Logger.error("NIF call #{function} failed: #{kind} - #{inspect(reason)}")
       {:error, {kind, reason}}

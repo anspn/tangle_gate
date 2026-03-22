@@ -4,28 +4,45 @@
     <p>Present your Verifiable Credential to access an authenticated terminal session</p>
   </hgroup>
 
-  <article id="did-validation-card">
+  <!-- Step 1: Create VP from credential + private key -->
+  <article id="create-vp-card">
     <header>
-      <h3>Start Authenticated Session</h3>
+      <h3>Step 1 — Create Verifiable Presentation</h3>
     </header>
-    <form id="upload-did-form" onsubmit="return false;">
-      <label>
-        Holder DID Document <small>(JSON, including keys)</small>
-        <textarea id="holder-doc-input" rows="6"
-                  placeholder='{"id":"did:iota:0x...","verificationMethod":[...],...}'
-                  required></textarea>
-        <small>Paste the full DID document with private key material (as returned by DID generation).</small>
-      </label>
+    <form id="create-vp-form" onsubmit="return false;">
       <label>
         Credential JWT
         <textarea id="credential-jwt-input" rows="3"
                   placeholder="eyJhbGciOi..." required></textarea>
-        <small>The TangleGateAccessCredential JWT issued to you by the server admin.</small>
+        <small>The TangleGateAccessCredential JWT provided by an admin.</small>
       </label>
-      <button type="submit" id="btn-upload-did">Start Session</button>
+      <label>
+        Private Key (JWK)
+        <textarea id="private-key-input" rows="3"
+                  placeholder='{"kty":"OKP","crv":"Ed25519",...,"d":"..."}'
+                  required></textarea>
+        <small>Your Ed25519 private key JWK — provided when your DID was assigned.</small>
+      </label>
+      <button type="submit" id="btn-create-vp">Create VP</button>
     </form>
-    <div id="upload-did-status" class="notice" style="display:none;"></div>
-    <pre id="upload-did-result" class="result-box" style="display:none;"></pre>
+    <div id="create-vp-status" class="notice" style="display:none;"></div>
+    <pre id="create-vp-result" class="result-box" style="display:none;"></pre>
+  </article>
+
+  <!-- Step 2: Start session with VP -->
+  <article id="start-session-card" style="display:none;">
+    <header>
+      <h3>Step 2 — Start Terminal Session</h3>
+    </header>
+    <form id="start-session-form" onsubmit="return false;">
+      <label>
+        Presentation JWT
+        <textarea id="vp-jwt-input" rows="3" readonly></textarea>
+        <small>Auto-filled from Step 1. This VP will be verified before the session starts.</small>
+      </label>
+      <button type="submit" id="btn-start-session">Start Session</button>
+    </form>
+    <div id="start-session-status" class="notice" style="display:none;"></div>
   </article>
 
   <!-- Terminal: shown after successful VP verification -->

@@ -1,6 +1,7 @@
 defmodule IotaService.Web.API.CredentialHandler do
   @moduledoc """
-  Credential API handler — VC issuance, VP creation, and server DID management.
+  Credential API handler — VC issuance, VP creation, server DID management,
+  and dynamic user management.
 
   Admin routes require JWT authentication with admin role.
   The `create-presentation` route is available to any authenticated user.
@@ -12,13 +13,22 @@ defmodule IotaService.Web.API.CredentialHandler do
   - `POST /api/credentials/issue`                 — Issue a VC to a holder DID (admin)
   - `POST /api/credentials/create-presentation`   — Create a VP from holder doc + credentials (any auth)
   - `GET  /api/credentials`                       — List issued credentials (admin)
+  - `POST /api/credentials/users`                 — Create a dynamic user (admin)
+  - `GET  /api/credentials/users`                 — List users with DIDs (admin)
+  - `POST /api/credentials/users/:email/assign-did` — Create a DID and assign to user (admin)
+  - `POST /api/credentials/users/:email/authorize` — Authorize user (issue VC) (admin)
+  - `POST /api/credentials/users/:email/unauthorize` — Unauthorize user (revoke VC) (admin)
   """
 
   use Plug.Router
 
   import Plug.Conn
 
+  require Logger
+
   alias IotaService.Credential.Server, as: CredServer
+  alias IotaService.Identity.Server, as: IdentityServer
+  alias IotaService.Store.UserStore
   alias IotaService.Web.API.Helpers
   alias IotaService.Web.Auth
 
@@ -69,7 +79,7 @@ defmodule IotaService.Web.API.CredentialHandler do
   # ---------------------------------------------------------------------------
   post "/provision" do
     conn = require_admin(conn)
-    if conn.halted?, do: conn, else: do_provision(conn)
+    if conn.halted, do: conn, else: do_provision(conn)
   end
 
   # ---------------------------------------------------------------------------
@@ -77,7 +87,7 @@ defmodule IotaService.Web.API.CredentialHandler do
   # ---------------------------------------------------------------------------
   get "/server-did" do
     conn = require_admin(conn)
-    if conn.halted?, do: conn, else: do_server_did(conn)
+    if conn.halted, do: conn, else: do_server_did(conn)
   end
 
   # ---------------------------------------------------------------------------
@@ -85,7 +95,7 @@ defmodule IotaService.Web.API.CredentialHandler do
   # ---------------------------------------------------------------------------
   post "/issue" do
     conn = require_admin(conn)
-    if conn.halted?, do: conn, else: do_issue(conn)
+    if conn.halted, do: conn, else: do_issue(conn)
   end
 
   # ---------------------------------------------------------------------------
@@ -96,7 +106,9 @@ defmodule IotaService.Web.API.CredentialHandler do
 
     with {:ok, holder_doc_json} <- require_param(params, "holder_doc_json"),
          {:ok, credential_jwts} <- require_param(params, "credential_jwts"),
-         {:ok, challenge} <- require_param(params, "challenge") do
+         {:ok, challenge} <- require_param(params, "challenge"),
+         {:ok, private_key_jwk} <- require_param(params, "private_key_jwk"),
+         {:ok, fragment} <- require_param(params, "fragment") do
       expires_in = params["expires_in"] || 600
 
       # credential_jwts can be a list or a JSON string
@@ -106,7 +118,14 @@ defmodule IotaService.Web.API.CredentialHandler do
           is_binary(credential_jwts) -> credential_jwts
         end
 
-      case CredServer.create_presentation(holder_doc_json, cred_jwts_json, challenge, expires_in) do
+      case CredServer.create_presentation(
+             holder_doc_json,
+             cred_jwts_json,
+             challenge,
+             expires_in,
+             private_key_jwk,
+             fragment
+           ) do
         {:ok, result} ->
           Helpers.json(conn, 201, %{
             presentation_jwt: result["presentation_jwt"],
@@ -134,7 +153,47 @@ defmodule IotaService.Web.API.CredentialHandler do
   # ---------------------------------------------------------------------------
   get "/" do
     conn = require_admin(conn)
-    if conn.halted?, do: conn, else: do_list_credentials(conn)
+    if conn.halted, do: conn, else: do_list_credentials(conn)
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users — Create a dynamic user (admin)
+  # ---------------------------------------------------------------------------
+  post "/users" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_create_user(conn)
+  end
+
+  # ---------------------------------------------------------------------------
+  # GET /api/credentials/users — List all users with DIDs (admin)
+  # ---------------------------------------------------------------------------
+  get "/users" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_list_users(conn)
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users/:email/assign-did — Create DID and assign (admin)
+  # ---------------------------------------------------------------------------
+  post "/users/:email/assign-did" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_assign_did(conn, conn.params["email"])
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users/:email/authorize — Issue VC and mark authorized (admin)
+  # ---------------------------------------------------------------------------
+  post "/users/:email/authorize" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_authorize_user(conn, conn.params["email"])
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users/:email/unauthorize — Revoke VC and mark unauthorized (admin)
+  # ---------------------------------------------------------------------------
+  post "/users/:email/unauthorize" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_unauthorize_user(conn, conn.params["email"])
   end
 
   match _ do
@@ -253,6 +312,222 @@ defmodule IotaService.Web.API.CredentialHandler do
       nil -> {:error, {:missing_parameter, key}}
       "" -> {:error, {:missing_parameter, key}}
       value -> {:ok, value}
+    end
+  end
+
+  # ===========================================================================
+  # Private — user management
+  # ===========================================================================
+
+  defp do_create_user(conn) do
+    params = conn.body_params || %{}
+
+    with {:ok, email} <- require_param(params, "email"),
+         {:ok, password} <- require_param(params, "password"),
+         role = params["role"] || "user",
+         {:ok, user} <- UserStore.create_user(email, password, role) do
+      Helpers.json(conn, 201, %{
+        email: user.email,
+        role: user.role,
+        did: user.did,
+        message: "User created successfully"
+      })
+    else
+      {:error, {:missing_parameter, key}} ->
+        Helpers.json(conn, 400, %{
+          error: "missing_parameter",
+          message: "Required parameter missing: #{key}"
+        })
+
+      {:error, reason} when is_binary(reason) ->
+        Helpers.json(conn, 409, %{error: "create_failed", message: reason})
+
+      {:error, reason} ->
+        Helpers.json(conn, 500, %{
+          error: "create_failed",
+          message: "Failed to create user: #{inspect(reason)}"
+        })
+    end
+  end
+
+  defp do_list_users(conn) do
+    if Application.get_env(:iota_service, :start_repo, true) do
+      dynamic_users = UserStore.list_users()
+
+      # Also include static config users for a full picture
+      static_users =
+        (Application.get_env(:iota_service, IotaService.Web.Auth, [])[:users] || [])
+        |> Enum.map(fn u ->
+          %{email: u.email, role: to_string(u.role), did: nil, source: "config"}
+        end)
+
+      all_users =
+        Enum.map(dynamic_users, fn u ->
+          Map.put(u, :source, "dynamic")
+        end) ++ static_users
+
+      Helpers.json(conn, 200, %{users: all_users, count: length(all_users)})
+    else
+      Helpers.json(conn, 503, %{
+        error: "unavailable",
+        message: "MongoDB is not enabled — user listing unavailable"
+      })
+    end
+  end
+
+  defp do_assign_did(conn, email) do
+    params = conn.body_params || %{}
+    network = params["network"] || "iota"
+    secret_key = Application.get_env(:iota_service, :secret_key)
+
+    unless secret_key && secret_key != "" do
+      Helpers.json(conn, 503, %{
+        error: "not_configured",
+        message: "Server secret_key is not configured — cannot create DIDs"
+      })
+    else
+      publish_opts =
+        [secret_key: secret_key, network: String.to_existing_atom(network)]
+        |> maybe_put(:node_url, Application.get_env(:iota_service, :node_url))
+        |> maybe_put(:identity_pkg_id, Application.get_env(:iota_service, :identity_pkg_id))
+
+      # 1. Generate and publish a DID on-chain
+      case IdentityServer.publish_did(publish_opts) do
+        {:ok, did_result} ->
+          did = did_result.did
+          private_key_jwk = did_result.private_key_jwk
+          fragment = did_result.verification_method_fragment
+
+          # 2. Assign the DID (with private key and fragment) to the user in MongoDB
+          case UserStore.assign_did(email, did, private_key_jwk, fragment) do
+            {:ok, _user} ->
+              # Parse private_key_jwk so it's returned as a JSON object, not an escaped string
+              parsed_jwk =
+                case Jason.decode(private_key_jwk) do
+                  {:ok, obj} -> obj
+                  {:error, _} -> private_key_jwk
+                end
+
+              Helpers.json(conn, 200, %{
+                email: email,
+                did: did,
+                did_document: did_result.document,
+                verification_method_fragment: fragment,
+                private_key_jwk: parsed_jwk,
+                message:
+                  "DID created and published on-chain. " <>
+                    "Use the Authorize button to issue a credential when ready."
+              })
+
+            {:error, reason} when is_binary(reason) ->
+              Helpers.json(conn, 404, %{error: "assign_failed", message: reason})
+
+            {:error, reason} ->
+              Helpers.json(conn, 500, %{
+                error: "assign_failed",
+                message: "DID created (#{did}) but assignment failed: #{inspect(reason)}"
+              })
+          end
+
+        {:error, reason} ->
+          Helpers.json(conn, 500, %{
+            error: "did_creation_failed",
+            message: "Failed to create DID: #{inspect(reason)}"
+          })
+      end
+    end
+  end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, _key, ""), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  # ===========================================================================
+  # Private — authorize / unauthorize
+  # ===========================================================================
+
+  defp do_authorize_user(conn, email) do
+    case UserStore.get_user_by_email(email) do
+      :not_found ->
+        Helpers.json(conn, 404, %{error: "not_found", message: "User not found: #{email}"})
+
+      {:ok, user} ->
+        cond do
+          is_nil(user.did) ->
+            Helpers.json(conn, 422, %{
+              error: "no_did",
+              message: "User has no DID assigned. Assign a DID first."
+            })
+
+          user.authorized == true ->
+            Helpers.json(conn, 409, %{
+              error: "already_authorized",
+              message: "User is already authorized."
+            })
+
+          true ->
+            case CredServer.issue_credential(
+                   user.did,
+                   %{"email" => email, "role" => user.role || "user"},
+                   "TangleGateAccessCredential"
+                 ) do
+              {:ok, cred_result} ->
+                # Mark the user as authorized in MongoDB
+                :ok = UserStore.set_authorized(email, true)
+
+                Helpers.json(conn, 200, %{
+                  email: email,
+                  did: user.did,
+                  authorized: true,
+                  credential_jwt: cred_result["credential_jwt"],
+                  message:
+                    "User authorized. Provide the credential_jwt to the user — " <>
+                      "they need it (together with their private key) to access the portal."
+                })
+
+              {:error, :no_server_did} ->
+                Helpers.json(conn, 503, %{
+                  error: "not_provisioned",
+                  message: "Server DID not provisioned. POST /api/credentials/provision first."
+                })
+
+              {:error, reason} ->
+                Helpers.json(conn, 500, %{
+                  error: "authorize_failed",
+                  message: "Failed to issue credential: #{inspect(reason)}"
+                })
+            end
+        end
+    end
+  end
+
+  defp do_unauthorize_user(conn, email) do
+    case UserStore.get_user_by_email(email) do
+      :not_found ->
+        Helpers.json(conn, 404, %{error: "not_found", message: "User not found: #{email}"})
+
+      {:ok, user} ->
+        if is_nil(user.did) do
+          Helpers.json(conn, 422, %{
+            error: "no_did",
+            message: "User has no DID assigned."
+          })
+        else
+          # Revoke all credentials for this DID
+          if Application.get_env(:iota_service, :start_repo, true) do
+            IotaService.Store.CredentialStore.revoke_credentials_for_holder(user.did)
+          end
+
+          # Mark user as unauthorized
+          :ok = UserStore.set_authorized(email, false)
+
+          Helpers.json(conn, 200, %{
+            email: email,
+            did: user.did,
+            authorized: false,
+            message: "User unauthorized. All credentials for this DID have been revoked."
+          })
+        end
     end
   end
 end

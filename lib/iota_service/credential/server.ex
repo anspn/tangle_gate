@@ -93,6 +93,8 @@ defmodule IotaService.Credential.Server do
   - `holder_did` — The subject/holder's DID string
   - `credential_type` — Credential type (e.g., "TangleGateAccessCredential")
   - `claims_json` — JSON string of credential claims
+  - `private_key_jwk` — The issuer's private key JWK (JSON string)
+  - `fragment` — The issuer's verification method fragment
 
   ## Returns
   `{:ok, result}` with:
@@ -101,12 +103,12 @@ defmodule IotaService.Credential.Server do
   - `subject_did` — The holder's DID
   - `credential_type` — The credential type
   """
-  @spec create_credential(String.t(), String.t(), String.t(), String.t()) ::
+  @spec create_credential(String.t(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def create_credential(issuer_doc_json, holder_did, credential_type, claims_json) do
+  def create_credential(issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment) do
     GenServer.call(
       __MODULE__,
-      {:create_credential, issuer_doc_json, holder_did, credential_type, claims_json},
+      {:create_credential, issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment},
       60_000
     )
   end
@@ -144,18 +146,28 @@ defmodule IotaService.Credential.Server do
   - `credential_jwts_json` — JSON array of credential JWT strings
   - `challenge` — Nonce for replay protection (pass "" to omit)
   - `expires_in_seconds` — Expiration in seconds from now (0 = no expiry)
+  - `private_key_jwk` — The holder's private key JWK (JSON string)
+  - `fragment` — The holder's verification method fragment
 
   ## Returns
   `{:ok, result}` with:
   - `presentation_jwt` — The signed VP as a compact JWT
   - `holder_did` — The holder's DID
   """
-  @spec create_presentation(String.t(), String.t(), String.t(), non_neg_integer()) ::
+  @spec create_presentation(String.t(), String.t(), String.t(), non_neg_integer(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def create_presentation(holder_doc_json, credential_jwts_json, challenge, expires_in_seconds \\ 600) do
+  def create_presentation(
+        holder_doc_json,
+        credential_jwts_json,
+        challenge,
+        expires_in_seconds \\ 600,
+        private_key_jwk,
+        fragment
+      ) do
     GenServer.call(
       __MODULE__,
-      {:create_presentation, holder_doc_json, credential_jwts_json, challenge, expires_in_seconds},
+      {:create_presentation, holder_doc_json, credential_jwts_json, challenge,
+       expires_in_seconds, private_key_jwk, fragment},
       60_000
     )
   end
@@ -211,11 +223,28 @@ defmodule IotaService.Credential.Server do
 
     if server_identity do
       Logger.info("Server DID loaded: #{server_identity.did}")
+      {:ok, state}
     else
-      Logger.warning("No server DID provisioned — credential issuance disabled until provisioned")
+      # No server DID found in MongoDB or Vault — schedule auto-provisioning
+      Logger.info("No server DID found — scheduling auto-provisioning")
+      {:ok, state, {:continue, :auto_provision}}
     end
+  end
 
-    {:ok, state}
+  @impl true
+  def handle_continue(:auto_provision, state) do
+    case do_provision_server_did([]) do
+      {:ok, identity} ->
+        Logger.info("Server DID auto-provisioned: #{identity.did}")
+        {:noreply, %{state | server_identity: identity}}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Server DID auto-provisioning failed: #{inspect(reason)} — " <>
+            "provision manually via POST /api/credentials/provision"
+        )
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -248,12 +277,20 @@ defmodule IotaService.Credential.Server do
       nil ->
         {:reply, {:error, :no_server_did}, state}
 
-      %{document: issuer_doc_json} ->
+      %{document: issuer_doc_json, private_key_jwk: private_key_jwk, verification_method_fragment: fragment} ->
         start_time = System.monotonic_time()
         claims_json = Jason.encode!(claims)
 
         result =
-          with {:ok, json} <- call_nif(:create_credential, [issuer_doc_json, holder_did, credential_type, claims_json]),
+          with {:ok, json} <-
+                 call_nif(:create_credential, [
+                   issuer_doc_json,
+                   holder_did,
+                   credential_type,
+                   claims_json,
+                   private_key_jwk,
+                   fragment
+                 ]),
                {:ok, parsed} <- Jason.decode(json) do
             # Record metadata in MongoDB (best-effort, don't block on failure)
             record_credential_metadata(parsed, holder_did, credential_type, claims)
@@ -272,7 +309,12 @@ defmodule IotaService.Credential.Server do
               %{state | credentials_issued: state.credentials_issued + 1}
 
             {:error, reason} ->
-              %{state | errors: [{DateTime.utc_now(), :issue_credential, reason} | Enum.take(state.errors, 99)]}
+              %{
+                state
+                | errors: [
+                    {DateTime.utc_now(), :issue_credential, reason} | Enum.take(state.errors, 99)
+                  ]
+              }
           end
 
         {:reply, result, new_state}
@@ -280,11 +322,23 @@ defmodule IotaService.Credential.Server do
   end
 
   @impl true
-  def handle_call({:create_credential, issuer_doc_json, holder_did, credential_type, claims_json}, _from, state) do
+  def handle_call(
+        {:create_credential, issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment},
+        _from,
+        state
+      ) do
     start_time = System.monotonic_time()
 
     result =
-      with {:ok, json} <- call_nif(:create_credential, [issuer_doc_json, holder_did, credential_type, claims_json]),
+      with {:ok, json} <-
+             call_nif(:create_credential, [
+               issuer_doc_json,
+               holder_did,
+               credential_type,
+               claims_json,
+               private_key_jwk,
+               fragment
+             ]),
            {:ok, parsed} <- Jason.decode(json) do
         emit_telemetry(:create_credential, start_time, %{success: true})
         {:ok, parsed}
@@ -301,7 +355,12 @@ defmodule IotaService.Credential.Server do
           %{state | credentials_issued: state.credentials_issued + 1}
 
         {:error, reason} ->
-          %{state | errors: [{DateTime.utc_now(), :create_credential, reason} | Enum.take(state.errors, 99)]}
+          %{
+            state
+            | errors: [
+                {DateTime.utc_now(), :create_credential, reason} | Enum.take(state.errors, 99)
+              ]
+          }
       end
 
     {:reply, result, new_state}
@@ -329,18 +388,36 @@ defmodule IotaService.Credential.Server do
           %{state | credentials_verified: state.credentials_verified + 1}
 
         {:error, reason} ->
-          %{state | errors: [{DateTime.utc_now(), :verify_credential, reason} | Enum.take(state.errors, 99)]}
+          %{
+            state
+            | errors: [
+                {DateTime.utc_now(), :verify_credential, reason} | Enum.take(state.errors, 99)
+              ]
+          }
       end
 
     {:reply, result, new_state}
   end
 
   @impl true
-  def handle_call({:create_presentation, holder_doc_json, credential_jwts_json, challenge, expires_in_seconds}, _from, state) do
+  def handle_call(
+        {:create_presentation, holder_doc_json, credential_jwts_json, challenge,
+         expires_in_seconds, private_key_jwk, fragment},
+        _from,
+        state
+      ) do
     start_time = System.monotonic_time()
 
     result =
-      with {:ok, json} <- call_nif(:create_presentation, [holder_doc_json, credential_jwts_json, challenge, expires_in_seconds]),
+      with {:ok, json} <-
+             call_nif(:create_presentation, [
+               holder_doc_json,
+               credential_jwts_json,
+               challenge,
+               expires_in_seconds,
+               private_key_jwk,
+               fragment
+             ]),
            {:ok, parsed} <- Jason.decode(json) do
         emit_telemetry(:create_presentation, start_time, %{success: true})
         {:ok, parsed}
@@ -357,18 +434,33 @@ defmodule IotaService.Credential.Server do
           %{state | presentations_created: state.presentations_created + 1}
 
         {:error, reason} ->
-          %{state | errors: [{DateTime.utc_now(), :create_presentation, reason} | Enum.take(state.errors, 99)]}
+          %{
+            state
+            | errors: [
+                {DateTime.utc_now(), :create_presentation, reason} | Enum.take(state.errors, 99)
+              ]
+          }
       end
 
     {:reply, result, new_state}
   end
 
   @impl true
-  def handle_call({:verify_presentation, presentation_jwt, holder_doc_json, issuer_docs_json, challenge}, _from, state) do
+  def handle_call(
+        {:verify_presentation, presentation_jwt, holder_doc_json, issuer_docs_json, challenge},
+        _from,
+        state
+      ) do
     start_time = System.monotonic_time()
 
     result =
-      with {:ok, json} <- call_nif(:verify_presentation, [presentation_jwt, holder_doc_json, issuer_docs_json, challenge]),
+      with {:ok, json} <-
+             call_nif(:verify_presentation, [
+               presentation_jwt,
+               holder_doc_json,
+               issuer_docs_json,
+               challenge
+             ]),
            {:ok, parsed} <- Jason.decode(json) do
         emit_telemetry(:verify_presentation, start_time, %{success: true})
         {:ok, parsed}
@@ -385,7 +477,12 @@ defmodule IotaService.Credential.Server do
           %{state | presentations_verified: state.presentations_verified + 1}
 
         {:error, reason} ->
-          %{state | errors: [{DateTime.utc_now(), :verify_presentation, reason} | Enum.take(state.errors, 99)]}
+          %{
+            state
+            | errors: [
+                {DateTime.utc_now(), :verify_presentation, reason} | Enum.take(state.errors, 99)
+              ]
+          }
       end
 
     {:reply, result, new_state}
@@ -402,7 +499,9 @@ defmodule IotaService.Credential.Server do
       other -> {:ok, other}
     end
   catch
-    :error, :badarg -> {:error, :badarg}
+    :error, :badarg ->
+      {:error, :badarg}
+
     kind, reason ->
       Logger.error("NIF call #{function} failed: #{kind} - #{inspect(reason)}")
       {:error, {kind, reason}}
@@ -421,17 +520,39 @@ defmodule IotaService.Credential.Server do
   # --- Server DID management ------------------------------------------------
 
   defp load_server_identity do
-    if Application.get_env(:iota_service, :start_repo, true) do
-      case IotaService.Store.CredentialStore.get_server_identity() do
-        {:ok, identity} -> identity
-        :not_found -> nil
+    # 1. Try MongoDB first (fast path)
+    mongo_identity =
+      if Application.get_env(:iota_service, :start_repo, true) do
+        case IotaService.Store.CredentialStore.get_server_identity() do
+          {:ok, identity} -> identity
+          :not_found -> nil
+        end
+      else
+        nil
       end
+
+    if mongo_identity do
+      mongo_identity
     else
-      nil
+      # 2. Try Vault (survives MongoDB wipes)
+      case IotaService.Vault.Client.read_server_did() do
+        {:ok, vault_identity} ->
+          Logger.info("Server DID restored from Vault: #{vault_identity.did}")
+
+          # Backfill MongoDB so next restart finds it there
+          if Application.get_env(:iota_service, :start_repo, true) do
+            IotaService.Store.CredentialStore.store_server_identity(vault_identity)
+          end
+
+          vault_identity
+
+        {:error, _} ->
+          nil
+      end
     end
   rescue
     e ->
-      Logger.warning("Could not load server identity from MongoDB: #{Exception.message(e)}")
+      Logger.warning("Could not load server identity: #{Exception.message(e)}")
       nil
   end
 
@@ -446,8 +567,15 @@ defmodule IotaService.Credential.Server do
     else
       publish_opts =
         [secret_key: secret_key]
-        |> maybe_put(:node_url, Keyword.get(opts, :node_url) || Application.get_env(:iota_service, :node_url))
-        |> maybe_put(:identity_pkg_id, Keyword.get(opts, :identity_pkg_id) || Application.get_env(:iota_service, :identity_pkg_id))
+        |> maybe_put(
+          :node_url,
+          Keyword.get(opts, :node_url) || Application.get_env(:iota_service, :node_url)
+        )
+        |> maybe_put(
+          :identity_pkg_id,
+          Keyword.get(opts, :identity_pkg_id) ||
+            Application.get_env(:iota_service, :identity_pkg_id)
+        )
 
       case IotaService.Identity.Server.publish_did(publish_opts) do
         {:ok, did_result} ->
@@ -455,13 +583,18 @@ defmodule IotaService.Credential.Server do
             did: did_result.did,
             document: did_result.document,
             verification_method_fragment: did_result.verification_method_fragment,
+            private_key_jwk: did_result.private_key_jwk,
             network: did_result.network,
             published_at: DateTime.utc_now()
           }
 
+          # Persist to MongoDB
           if Application.get_env(:iota_service, :start_repo, true) do
             IotaService.Store.CredentialStore.store_server_identity(identity)
           end
+
+          # Persist to Vault (survives MongoDB wipes / container rebuilds)
+          IotaService.Vault.Client.write_server_did(identity)
 
           {:ok, identity}
 

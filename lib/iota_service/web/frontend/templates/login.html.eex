@@ -23,6 +23,13 @@
         Password
         <input type="password" id="login-password" required />
       </label>
+      <label>
+        Your DID <small>(optional — verify DID ownership)</small>
+        <input type="text" id="login-did" placeholder="did:iota:0x..." />
+        <small>
+          If you have a DID assigned to your account, enter it here to verify ownership.
+        </small>
+      </label>
       <button type="submit" id="btn-login">Sign in</button>
       <small>
         Dev accounts: <code>admin@iota.local / iota_admin_2026</code> (admin) &middot;
@@ -30,6 +37,7 @@
         <code>verifier@iota.local / iota_verifier_2026</code> (verifier)
       </small>
     </form>
+
   </article>
 
   <!-- VP-based login -->
@@ -49,9 +57,9 @@
 
     <form id="vp-login-form" onsubmit="return false;">
       <label>
-        Holder DID Document <small>(JSON, including keys)</small>
+        Holder DID Document <small>(JSON)</small>
         <textarea id="vp-holder-doc" rows="5"
-                  placeholder='{"id":"did:iota:0x...","verificationMethod":[...],...}'
+                  placeholder='{"doc":{"id":"did:iota:0x...","verificationMethod":[...]},...}'
                   required></textarea>
       </label>
       <label>
@@ -59,6 +67,17 @@
         <textarea id="vp-credential-jwt" rows="3"
                   placeholder="eyJhbGciOi..." required></textarea>
         <small>The TangleGateAccessCredential JWT issued to you by the server admin.</small>
+      </label>
+      <label>
+        Private Key JWK <small>(JSON — the signing key for your DID)</small>
+        <textarea id="vp-private-key" rows="2"
+                  placeholder='{"kty":"OKP","alg":"EdDSA","crv":"Ed25519","x":"...","d":"..."}'
+                  required></textarea>
+      </label>
+      <label>
+        Verification Method Fragment
+        <input type="text" id="vp-fragment"
+               placeholder="Dtxwn99Pa7QYrO63EOMOkcSAJzxrofcrqYbgVWM_MLQ" required />
       </label>
       <button type="submit" id="btn-vp-login">2. Sign in with VP</button>
     </form>

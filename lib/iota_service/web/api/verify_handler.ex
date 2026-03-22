@@ -37,7 +37,9 @@ defmodule IotaService.Web.API.VerifyHandler do
           role: role
         })
       else
-        conn |> Helpers.json(403, %{error: "forbidden", message: "Requires admin or verifier role"}) |> halt()
+        conn
+        |> Helpers.json(403, %{error: "forbidden", message: "Requires admin or verifier role"})
+        |> halt()
       end
     else
       {:error, :no_token} ->

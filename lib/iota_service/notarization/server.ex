@@ -208,7 +208,14 @@ defmodule IotaService.Notarization.Server do
            node_url <- ledger_opt(opts, :node_url),
            notarize_pkg_id <- ledger_opt(opts, :notarize_pkg_id),
            description <- Keyword.get(opts, :description, ""),
-           {:ok, json} <- call_nif(:create_notarization, [secret_key, node_url, notarize_pkg_id, state_data, description]),
+           {:ok, json} <-
+             call_nif(:create_notarization, [
+               secret_key,
+               node_url,
+               notarize_pkg_id,
+               state_data,
+               description
+             ]),
            {:ok, parsed} <- Jason.decode(json) do
         emit_telemetry(:create_on_chain, start_time, %{success: true, method: "locked"})
         {:ok, parsed}
@@ -238,7 +245,14 @@ defmodule IotaService.Notarization.Server do
            node_url <- ledger_opt(opts, :node_url),
            notarize_pkg_id <- ledger_opt(opts, :notarize_pkg_id),
            description <- Keyword.get(opts, :description, ""),
-           {:ok, json} <- call_nif(:create_dynamic_notarization, [secret_key, node_url, notarize_pkg_id, state_data, description]),
+           {:ok, json} <-
+             call_nif(:create_dynamic_notarization, [
+               secret_key,
+               node_url,
+               notarize_pkg_id,
+               state_data,
+               description
+             ]),
            {:ok, parsed} <- Jason.decode(json) do
         emit_telemetry(:create_on_chain, start_time, %{success: true, method: "dynamic"})
         {:ok, parsed}
@@ -287,7 +301,14 @@ defmodule IotaService.Notarization.Server do
       with {:ok, secret_key} <- require_opt(opts, :secret_key),
            node_url <- ledger_opt(opts, :node_url),
            notarize_pkg_id <- ledger_opt(opts, :notarize_pkg_id),
-           {:ok, json} <- call_nif(:update_notarization_state, [secret_key, node_url, notarize_pkg_id, object_id, new_state_data]),
+           {:ok, json} <-
+             call_nif(:update_notarization_state, [
+               secret_key,
+               node_url,
+               notarize_pkg_id,
+               object_id,
+               new_state_data
+             ]),
            {:ok, parsed} <- Jason.decode(json) do
         emit_telemetry(:update_on_chain, start_time, %{success: true})
         {:ok, parsed}
@@ -309,7 +330,8 @@ defmodule IotaService.Notarization.Server do
       with {:ok, secret_key} <- require_opt(opts, :secret_key),
            node_url <- ledger_opt(opts, :node_url),
            notarize_pkg_id <- ledger_opt(opts, :notarize_pkg_id),
-           {:ok, json} <- call_nif(:destroy_notarization, [secret_key, node_url, notarize_pkg_id, object_id]),
+           {:ok, json} <-
+             call_nif(:destroy_notarization, [secret_key, node_url, notarize_pkg_id, object_id]),
            {:ok, parsed} <- Jason.decode(json) do
         emit_telemetry(:destroy_on_chain, start_time, %{success: true})
         {:ok, parsed}
@@ -335,8 +357,11 @@ defmodule IotaService.Notarization.Server do
   defp ledger_opt(opts, key) do
     Keyword.get_lazy(opts, key, fn ->
       case key do
-        :node_url -> Application.get_env(:iota_service, :node_url, "https://api.testnet.iota.cafe")
-        :notarize_pkg_id -> Application.get_env(:iota_service, :notarize_pkg_id, "")
+        :node_url ->
+          Application.get_env(:iota_service, :node_url, "https://api.testnet.iota.cafe")
+
+        :notarize_pkg_id ->
+          Application.get_env(:iota_service, :notarize_pkg_id, "")
       end
     end)
   end

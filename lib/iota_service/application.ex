@@ -115,6 +115,7 @@ defmodule IotaService.Application do
     if Application.get_env(:iota_service, :start_repo, true) do
       IotaService.Store.NotarizationStore.ensure_indexes()
       IotaService.Store.CredentialStore.ensure_indexes()
+      IotaService.Store.UserStore.ensure_indexes()
     end
   rescue
     e ->

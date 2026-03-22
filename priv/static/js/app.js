@@ -218,15 +218,22 @@ function initLogin() {
     setLoading("btn-login", true);
     const email = document.getElementById("login-email").value;
     const password = document.getElementById("login-password").value;
+    const did = (document.getElementById("login-did").value || "").trim();
+
+    const body = { email, password };
+    if (did) body.did = did;
 
     try {
-      const res = await api("POST", "/auth/login", { email, password });
+      const res = await api("POST", "/auth/login", body);
       if (res.status === 200) {
         setToken(res.data.token);
         setRole(res.data.user.role || "user");
+
         showNotice(
           "login-status",
-          `Authenticated as ${res.data.user.email} (${res.data.user.role})`,
+          `Authenticated as ${res.data.user.email} (${res.data.user.role})` +
+            (res.data.holder_did ? ` — DID verified: ${truncateDid(res.data.holder_did)}` : "") +
+            (res.data.warning ? ` — ${res.data.warning}` : ""),
           "success"
         );
         const dest = res.data.user.role === "user" ? "/portal" : res.data.user.role === "verifier" ? "/verify" : "/";
@@ -281,12 +288,20 @@ function initLogin() {
       setLoading("btn-vp-login", true);
       const holderDocJson = document.getElementById("vp-holder-doc").value.trim();
       const credentialJwt = document.getElementById("vp-credential-jwt").value.trim();
+      const privateKeyJwk = document.getElementById("vp-private-key").value.trim();
+      const fragment = document.getElementById("vp-fragment").value.trim();
 
       // Validate JSON
       try {
         JSON.parse(holderDocJson);
       } catch (e) {
         showNotice("vp-login-status", "DID document must be valid JSON.", "error");
+        setLoading("btn-vp-login", false);
+        return;
+      }
+
+      if (!privateKeyJwk || !fragment) {
+        showNotice("vp-login-status", "Private key JWK and fragment are required.", "error");
         setLoading("btn-vp-login", false);
         return;
       }
@@ -301,6 +316,8 @@ function initLogin() {
             holder_doc_json: holderDocJson,
             credential_jwt: credentialJwt,
             challenge: vpChallenge,
+            private_key_jwk: privateKeyJwk,
+            fragment: fragment,
           }),
         });
         const vpData = await vpRes.json();
@@ -456,6 +473,185 @@ function initIdentity() {
         setLoading("btn-revoke-did", false);
       }
     });
+
+  // --- User Management (admin) ---------------------------------------------
+
+  const createUserForm = document.getElementById("create-user-form");
+  const usersTable = document.getElementById("users-table");
+  const usersTbody = document.getElementById("users-tbody");
+  const usersEmpty = document.getElementById("users-empty");
+  const refreshUsersBtn = document.getElementById("btn-refresh-users");
+
+  if (!createUserForm) return;
+
+  async function loadUsers() {
+    try {
+      const res = await api("GET", "/credentials/users");
+      if (res.status === 200 && res.data.users) {
+        const users = res.data.users;
+        if (users.length === 0) {
+          usersTable.style.display = "none";
+          usersEmpty.style.display = "block";
+          return;
+        }
+        usersEmpty.style.display = "none";
+        usersTable.style.display = "table";
+        usersTbody.innerHTML = "";
+
+        users.forEach((u) => {
+          const tr = document.createElement("tr");
+          const didCell = u.did
+            ? `<code title="${u.did}">${truncateDid(u.did)}</code>`
+            : "<em>None</em>";
+          const authorizedCell = u.did
+            ? (u.authorized
+              ? '<span style="color:rgb(5,204,147);font-weight:600;">Authorized</span>'
+              : '<span style="color:#a04048;font-weight:600;">Unauthorized</span>')
+            : '—';
+          const source = u.source === "config"
+            ? '<mark>config</mark>'
+            : '<small>dynamic</small>';
+
+          // Build actions
+          let actions = '';
+          if (u.source === "dynamic" && !u.did) {
+            actions = `<button class="outline btn-assign-did" data-email="${u.email}" style="padding:0.2rem 0.5rem;font-size:0.8rem;">Assign DID</button>`;
+          } else if (u.source === "dynamic" && u.did) {
+            if (u.authorized) {
+              actions = `<button class="outline secondary btn-unauthorize" data-email="${u.email}" style="padding:0.2rem 0.5rem;font-size:0.8rem;">Unauthorize</button>`;
+            } else {
+              actions = `<button class="outline btn-authorize" data-email="${u.email}" style="padding:0.2rem 0.5rem;font-size:0.8rem;">Authorize</button>`;
+            }
+          }
+          tr.innerHTML = `<td>${u.email}</td><td>${u.role}</td><td>${didCell}</td><td>${authorizedCell}</td><td>${source}</td><td>${actions}</td>`;
+          usersTbody.appendChild(tr);
+        });
+
+        // Bind assign-DID buttons
+        usersTbody.querySelectorAll(".btn-assign-did").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const email = btn.dataset.email;
+            btn.ariaBusy = "true";
+            btn.disabled = true;
+            try {
+              const res = await api("POST", `/credentials/users/${encodeURIComponent(email)}/assign-did`, {});
+              if (res.status === 200) {
+                showNotice("assign-did-result", `DID assigned to ${email}: ${truncateDid(res.data.did)}`, "success");
+                const displayData = {
+                  message: res.data.message,
+                  did: res.data.did,
+                  verification_method_fragment: res.data.verification_method_fragment,
+                };
+                if (res.data.did_document) {
+                  displayData.did_document = typeof res.data.did_document === "string"
+                    ? JSON.parse(res.data.did_document)
+                    : res.data.did_document;
+                }
+                if (res.data.private_key_jwk) {
+                  displayData.private_key_jwk = res.data.private_key_jwk;
+                }
+                show("assign-did-doc-result", displayData, false);
+                loadUsers();
+              } else {
+                showNotice("assign-did-result", res.data.message || "Failed to assign DID", "error");
+              }
+            } catch (err) {
+              showNotice("assign-did-result", `Error: ${err.message}`, "error");
+            } finally {
+              btn.ariaBusy = "false";
+              btn.disabled = false;
+            }
+          });
+        });
+
+        // Bind authorize buttons
+        usersTbody.querySelectorAll(".btn-authorize").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const email = btn.dataset.email;
+            btn.ariaBusy = "true";
+            btn.disabled = true;
+            try {
+              const res = await api("POST", `/credentials/users/${encodeURIComponent(email)}/authorize`, {});
+              if (res.status === 200) {
+                showNotice("assign-did-result", `User ${email} authorized.`, "success");
+                const displayData = {
+                  message: res.data.message,
+                  did: res.data.did,
+                  credential_jwt: res.data.credential_jwt,
+                };
+                show("assign-did-doc-result", displayData, false);
+                loadUsers();
+              } else {
+                showNotice("assign-did-result", res.data.message || "Authorization failed", "error");
+              }
+            } catch (err) {
+              showNotice("assign-did-result", `Error: ${err.message}`, "error");
+            } finally {
+              btn.ariaBusy = "false";
+              btn.disabled = false;
+            }
+          });
+        });
+
+        // Bind unauthorize buttons
+        usersTbody.querySelectorAll(".btn-unauthorize").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const email = btn.dataset.email;
+            btn.ariaBusy = "true";
+            btn.disabled = true;
+            try {
+              const res = await api("POST", `/credentials/users/${encodeURIComponent(email)}/unauthorize`, {});
+              if (res.status === 200) {
+                showNotice("assign-did-result", `User ${email} unauthorized. Credentials revoked.`, "success");
+                document.getElementById("assign-did-doc-result").style.display = "none";
+                loadUsers();
+              } else {
+                showNotice("assign-did-result", res.data.message || "Unauthorization failed", "error");
+              }
+            } catch (err) {
+              showNotice("assign-did-result", `Error: ${err.message}`, "error");
+            } finally {
+              btn.ariaBusy = "false";
+              btn.disabled = false;
+            }
+          });
+        });
+      }
+    } catch (err) {
+      showNotice("create-user-status", `Error loading users: ${err.message}`, "error");
+    }
+  }
+
+  // Create user
+  createUserForm.addEventListener("submit", async () => {
+    setLoading("btn-create-user", true);
+    const email = document.getElementById("user-email").value;
+    const password = document.getElementById("user-password").value;
+    const role = document.getElementById("user-role").value;
+
+    try {
+      const res = await api("POST", "/credentials/users", { email, password, role });
+      if (res.status === 201) {
+        showNotice("create-user-status", `User ${res.data.email} created (${res.data.role})`, "success");
+        createUserForm.reset();
+        loadUsers();
+      } else {
+        showNotice("create-user-status", res.data.message || "Failed to create user", "error");
+      }
+    } catch (err) {
+      showNotice("create-user-status", `Error: ${err.message}`, "error");
+    } finally {
+      setLoading("btn-create-user", false);
+    }
+  });
+
+  // Refresh users
+  if (refreshUsersBtn) {
+    refreshUsersBtn.addEventListener("click", loadUsers);
+  }
+
+  // Load users on page init
+  loadUsers();
 }
 
 // ---------------------------------------------------------------------------
@@ -463,66 +659,26 @@ function initIdentity() {
 // ---------------------------------------------------------------------------
 
 function initPortal() {
-  const form = document.getElementById("upload-did-form");
-  if (!form) return;
+  const vpForm = document.getElementById("create-vp-form");
+  if (!vpForm) return;
 
   // User-only page
   if (requireRole("user")) return;
 
-  // Terminal elements
+  // Element references
+  const createVpCard = document.getElementById("create-vp-card");
+  const startSessionCard = document.getElementById("start-session-card");
   const terminalCard = document.getElementById("terminal-card");
   const terminalIframe = document.getElementById("terminal-iframe");
   const terminalBadge = document.getElementById("terminal-did-badge");
-  const validationCard = document.getElementById("did-validation-card");
   const disconnectBtn = document.getElementById("btn-disconnect-terminal");
+  const sessionForm = document.getElementById("start-session-form");
 
-  /**
-   * VP-based session creation flow:
-   * 1. Get challenge nonce from server
-   * 2. Create a Verifiable Presentation (VP) with holder doc + credential + challenge
-   * 3. Start a recording session with the VP
-   *
-   * @param {string} holderDocJson — holder DID document JSON (with keys)
-   * @param {string} credentialJwt — the credential JWT issued by the server
-   * @returns {Promise<{sessionId: string, did: string}|null>}
-   */
-  async function startVPSession(holderDocJson, credentialJwt) {
-    // Step 1: Get challenge nonce
-    const challengeRes = await api("GET", "/auth/challenge");
-    if (challengeRes.status !== 200) {
-      throw new Error(challengeRes.data.message || "Failed to get challenge");
-    }
-    const challenge = challengeRes.data.challenge;
-
-    // Step 2: Create VP via server (holder doc contains keys)
-    const vpRes = await api("POST", "/credentials/create-presentation", {
-      holder_doc_json: holderDocJson,
-      credential_jwts: [credentialJwt],
-      challenge: challenge,
-      expires_in: 300,
-    });
-    if (vpRes.status !== 201) {
-      throw new Error(vpRes.data.message || "Failed to create presentation");
-    }
-    const presentationJwt = vpRes.data.presentation_jwt;
-    const holderDid = vpRes.data.holder_did;
-
-    // Step 3: Start session with VP
-    const sessionRes = await api("POST", "/sessions", {
-      presentation_jwt: presentationJwt,
-      challenge: challenge,
-      holder_did: holderDid,
-    });
-    if (sessionRes.status === 201 && sessionRes.data.session_id) {
-      sessionStorage.setItem("iota_session_id", sessionRes.data.session_id);
-      return { sessionId: sessionRes.data.session_id, did: holderDid };
-    }
-    throw new Error(sessionRes.data.message || "Failed to start session");
-  }
+  // VP creation state (needed for session start)
+  let pendingVp = null; // { presentation_jwt, challenge, holder_did }
 
   /**
    * End a recording session via the API (triggers notarization).
-   * @param {string} sessionId
    */
   async function endRecordingSession(sessionId) {
     if (!sessionId) return;
@@ -539,29 +695,23 @@ function initPortal() {
     sessionStorage.removeItem("iota_session_id");
   }
 
-  /**
-   * Show the terminal iframe, hiding the validation form.
-   * @param {string} did — The validated DID to display as a badge
-   */
   function showTerminal(did) {
     const ttydUrl = window.__TTYD_URL__ || "http://localhost:7681";
     terminalIframe.src = ttydUrl;
     terminalBadge.textContent = did;
-    validationCard.style.display = "none";
+    createVpCard.style.display = "none";
+    startSessionCard.style.display = "none";
     terminalCard.style.display = "block";
-    // Store in session so page refreshes re-open the terminal
     sessionStorage.setItem("iota_portal_did", did);
   }
 
-  /** Hide the terminal, return to the validation form. */
   async function hideTerminal() {
     terminalIframe.src = "about:blank";
     terminalCard.style.display = "none";
-    validationCard.style.display = "block";
+    createVpCard.style.display = "block";
+    startSessionCard.style.display = "none";
+    pendingVp = null;
 
-    // End the recording session (triggers notarization).
-    // We wait 1 second before calling the API so that the bash EXIT trap
-    // has time to flush the history file to disk after the WebSocket closes.
     const sessionId = sessionStorage.getItem("iota_session_id");
     if (sessionId) {
       if (disconnectBtn) disconnectBtn.setAttribute("aria-busy", "true");
@@ -569,54 +719,94 @@ function initPortal() {
       await endRecordingSession(sessionId);
       if (disconnectBtn) disconnectBtn.setAttribute("aria-busy", "false");
     }
-
     sessionStorage.removeItem("iota_portal_did");
   }
 
-  // Disconnect button
   if (disconnectBtn) {
     disconnectBtn.addEventListener("click", hideTerminal);
   }
 
-  // If user previously validated a DID in this session, restore the terminal
+  // Restore terminal if already active
   const savedDid = sessionStorage.getItem("iota_portal_did");
   if (savedDid) {
     showTerminal(savedDid);
   }
 
-  form.addEventListener("submit", async () => {
-    setLoading("btn-upload-did", true);
-    // Hide previous results
-    const statusEl = document.getElementById("upload-did-status");
-    const resultEl = document.getElementById("upload-did-result");
+  // Step 1: Create VP
+  vpForm.addEventListener("submit", async () => {
+    setLoading("btn-create-vp", true);
+    const statusEl = document.getElementById("create-vp-status");
+    const resultEl = document.getElementById("create-vp-result");
     if (statusEl) statusEl.style.display = "none";
     if (resultEl) resultEl.style.display = "none";
+    startSessionCard.style.display = "none";
 
-    const holderDocJson = document.getElementById("holder-doc-input").value.trim();
     const credentialJwt = document.getElementById("credential-jwt-input").value.trim();
+    const privateKeyJwk = document.getElementById("private-key-input").value.trim();
 
-    if (!holderDocJson || !credentialJwt) {
-      showNotice("upload-did-status", "Both DID document and credential JWT are required.", "error");
-      setLoading("btn-upload-did", false);
-      return;
-    }
-
-    // Validate that holder_doc_json is valid JSON
-    try {
-      JSON.parse(holderDocJson);
-    } catch (e) {
-      showNotice("upload-did-status", "DID document must be valid JSON.", "error");
-      setLoading("btn-upload-did", false);
+    if (!credentialJwt || !privateKeyJwk) {
+      showNotice("create-vp-status", "Both Credential JWT and Private Key are required.", "error");
+      setLoading("btn-create-vp", false);
       return;
     }
 
     try {
-      const result = await startVPSession(holderDocJson, credentialJwt);
-      showTerminal(result.did);
+      const res = await api("POST", "/sessions/create-vp", {
+        credential_jwt: credentialJwt,
+        private_key_jwk: privateKeyJwk,
+      });
+      if (res.status === 201 && res.data.presentation_jwt) {
+        pendingVp = {
+          presentation_jwt: res.data.presentation_jwt,
+          challenge: res.data.challenge,
+          holder_did: res.data.holder_did,
+        };
+        showNotice("create-vp-status", "VP created successfully. Proceed to Step 2.", "success");
+        show("create-vp-result", {
+          holder_did: res.data.holder_did,
+          presentation_jwt: res.data.presentation_jwt,
+        }, false);
+
+        // Show Step 2 and auto-fill the VP
+        document.getElementById("vp-jwt-input").value = res.data.presentation_jwt;
+        startSessionCard.style.display = "block";
+      } else {
+        showNotice("create-vp-status", res.data.message || "Failed to create VP", "error");
+      }
     } catch (err) {
-      showNotice("upload-did-status", `Session start failed: ${err.message}`, "error");
+      showNotice("create-vp-status", `Error: ${err.message}`, "error");
     } finally {
-      setLoading("btn-upload-did", false);
+      setLoading("btn-create-vp", false);
+    }
+  });
+
+  // Step 2: Start session with VP
+  sessionForm.addEventListener("submit", async () => {
+    if (!pendingVp) {
+      showNotice("start-session-status", "Create a VP first (Step 1).", "error");
+      return;
+    }
+
+    setLoading("btn-start-session", true);
+    const statusEl = document.getElementById("start-session-status");
+    if (statusEl) statusEl.style.display = "none";
+
+    try {
+      const res = await api("POST", "/sessions", {
+        presentation_jwt: pendingVp.presentation_jwt,
+        challenge: pendingVp.challenge,
+        holder_did: pendingVp.holder_did,
+      });
+      if (res.status === 201 && res.data.session_id) {
+        sessionStorage.setItem("iota_session_id", res.data.session_id);
+        showTerminal(res.data.did);
+      } else {
+        showNotice("start-session-status", res.data.message || "Failed to start session", "error");
+      }
+    } catch (err) {
+      showNotice("start-session-status", `Error: ${err.message}`, "error");
+    } finally {
+      setLoading("btn-start-session", false);
     }
   });
 }
