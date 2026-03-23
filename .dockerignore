@@ -4,6 +4,11 @@ deps/
 cover/
 doc/
 
+# Frontend build cache (source is copied, deps installed fresh in Docker)
+web_tangle_gate/node_modules/
+web_tangle_gate/dist/
+priv/static/spa/
+
 # Version control
 .git/
 .gitignore

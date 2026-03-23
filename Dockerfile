@@ -1,10 +1,33 @@
 # =============================================================================
 # Dockerfile for tangle_gate
-# Multi-stage build: Rust NIF compilation → Elixir build → minimal runtime
+# Multi-stage build: SPA frontend → Rust NIF compilation → Elixir build → minimal runtime
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# Stage 1: Build (Elixir + Rust toolchain)
+# Stage 1: Build React SPA frontend
+# ---------------------------------------------------------------------------
+FROM node:22-slim AS spa
+
+WORKDIR /spa
+
+# Copy package manifests first for layer caching
+COPY web_tangle_gate/package.json web_tangle_gate/package-lock.json* ./
+
+# Install dependencies
+RUN npm ci --ignore-scripts 2>/dev/null || npm install
+
+# Copy frontend source
+COPY web_tangle_gate/ .
+
+# Copy mix.exs so vite can read the app version
+COPY mix.exs /mix.exs
+
+# Build SPA (outputs to ../priv/static/spa/ relative to web_tangle_gate,
+# but inside Docker we override to ./dist)
+RUN npx vite build --outDir dist
+
+# ---------------------------------------------------------------------------
+# Stage 2: Build Elixir + Rust NIF
 # ---------------------------------------------------------------------------
 FROM hexpm/elixir:1.18.3-erlang-27.3.4.8-debian-bookworm-20260202 AS build
 
@@ -52,6 +75,9 @@ RUN mix deps.compile
 COPY lib lib
 COPY priv priv
 
+# Copy SPA build output from Stage 1 into priv/static/spa/
+COPY --from=spa /spa/dist priv/static/spa
+
 # Compile the application
 RUN mix compile
 
@@ -59,7 +85,7 @@ RUN mix compile
 RUN mix release
 
 # ---------------------------------------------------------------------------
-# Stage 2: Runtime (minimal image, no build tools)
+# Stage 3: Runtime (minimal image, no build tools)
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 

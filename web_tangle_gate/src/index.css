@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    /* TangleGate Design Tokens — dark command center */
+    --bg-base: 228 16% 14%;
+    --bg-elevated: 230 18% 17%;
+    --bg-overlay: 0 0% 0% / 0.4;
+
+    --surface: 0 0% 100% / 0.06;
+    --surface-hover: 0 0% 100% / 0.10;
+    --border-subtle: 0 0% 100% / 0.06;
+    --border-default: 0 0% 100% / 0.12;
+    --border-strong: 0 0% 100% / 0.2;
+
+    --text-primary: 240 5% 90%;
+    --text-secondary: 240 4% 66%;
+    --text-muted: 240 4% 47%;
+    --text-inverse: 0 0% 4%;
+
+    /* Primary — Teal */
+    --accent: 160 95% 41%;
+    --accent-hover: 160 95% 36%;
+    --accent-soft: 160 95% 41% / 0.12;
+
+    /* Secondary — Blue */
+    --accent-blue: 207 100% 41%;
+    --accent-blue-soft: 207 100% 41% / 0.12;
+
+    /* Status */
+    --success: 160 95% 41%;
+    --success-bg: 160 95% 41% / 0.12;
+    --warning-color: 38 92% 50%;
+    --warning-bg: 38 92% 50% / 0.12;
+    --danger: 0 84% 60%;
+    --danger-bg: 0 84% 60% / 0.12;
+    --info: 207 100% 41%;
+    --info-bg: 207 100% 41% / 0.12;
+
+    --focus-ring: 160 95% 41% / 0.35;
+    --hover-overlay: 0 0% 100% / 0.04;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-lg: 0 10px 30px rgba(0,0,0,0.6);
+
+    /* Shadcn mappings */
+    --background: var(--bg-base);
+    --foreground: var(--text-primary);
+    --card: var(--bg-elevated);
+    --card-foreground: var(--text-primary);
+    --popover: var(--bg-elevated);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent);
+    --primary-foreground: var(--text-inverse);
+    --secondary: var(--surface);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--surface);
+    --muted-foreground: var(--text-secondary);
+    --accent-color: var(--surface-hover);
+    --accent-foreground: var(--text-primary);
+    --destructive: var(--danger);
+    --destructive-foreground: 0 0% 98%;
+    --border: var(--border-default);
+    --input: var(--border-default);
+    --ring: var(--focus-ring);
+    --radius: 0.5rem;
+
+    --sidebar-background: var(--bg-elevated);
+    --sidebar-foreground: var(--text-primary);
+    --sidebar-primary: var(--accent);
+    --sidebar-primary-foreground: var(--text-inverse);
+    --sidebar-accent: var(--surface);
+    --sidebar-accent-foreground: var(--text-primary);
+    --sidebar-border: var(--border-default);
+    --sidebar-ring: var(--focus-ring);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  code, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border-strong));
+  border-radius: 3px;
+}
+
+/* Pulse dot animation */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}

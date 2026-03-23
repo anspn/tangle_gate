@@ -42,3 +42,8 @@ priv/documents
 
 # AI context (just testing out)
 CLAUDE.md
+
+# React frontend (web_tangle_gate)
+web_tangle_gate/node_modules/
+web_tangle_gate/dist/
+priv/static/spa/
