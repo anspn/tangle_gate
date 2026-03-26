@@ -1,158 +1,313 @@
 import { useQuery } from '@tanstack/react-query';
-import { healthApi, credentialApi, sessionApi, identityApi } from '@/lib/api';
-import { PageHeader, StatCard } from '@/components/shared/UIElements';
+import { healthApi, credentialApi, sessionApi, dashboardApi } from '@/lib/api';
+import { PageHeader } from '@/components/shared/UIElements';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { DIDDisplay } from '@/components/shared/DataDisplay';
-import { JsonViewer } from '@/components/shared/JsonViewer';
-import { LoadingButton } from '@/components/shared/LoadingButton';
-import { useState } from 'react';
+import { SessionsChart } from '@/components/dashboard/SessionsChart';
+import { CredentialsChart } from '@/components/dashboard/CredentialsChart';
 import { format } from 'date-fns';
-import { Activity, Server, Fingerprint } from 'lucide-react';
+import {
+  Activity, Server, Users, ShieldCheck, FileKey, BarChart3,
+  TrendingUp, UserCheck, ShieldOff,
+} from 'lucide-react';
 
 export default function DashboardPage() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" subtitle="System overview and quick actions" />
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <HealthCard />
-        <ServerDIDCard />
-        <QuickDIDTest />
+      <PageHeader title="Dashboard" subtitle="System overview and analytics" />
+      <StatusBar />
+      <div className="grid gap-4 md:grid-cols-2">
+        <UsersCard />
+        <CredentialsCard />
       </div>
-      <SessionStatsSection />
-      <RecentSessionsList />
+      <UnifiedSessionsCard />
+      <ChartsSection />
     </div>
   );
 }
 
-function HealthCard() {
-  const { data, isLoading } = useQuery({
+// =============================================================================
+// Status Bar — compact health + server DID
+// =============================================================================
+
+function StatusBar() {
+  const health = useQuery({
     queryKey: ['health'],
     queryFn: () => healthApi.check(),
     refetchInterval: 30000,
   });
 
-  return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
-      <div className="flex items-center gap-2.5 mb-3">
-        <Activity className="h-5 w-5 text-tg-text-muted" />
-        <h3 className="text-base font-medium text-tg-text-muted">System Health</h3>
-      </div>
-      {isLoading ? (
-        <div className="h-12 animate-pulse rounded bg-tg-surface" />
-      ) : data?.ok ? (
-        <div className="space-y-2">
-          <StatusBadge status={data.data.status} />
-          <p className="text-sm text-tg-text-muted">{format(new Date(data.data.timestamp), 'PPpp')}</p>
-        </div>
-      ) : (
-        <p className="text-sm text-tg-danger">Failed to load</p>
-      )}
-    </div>
-  );
-}
-
-function ServerDIDCard() {
-  const { data, isLoading } = useQuery({
+  const serverDid = useQuery({
     queryKey: ['serverDid'],
     queryFn: () => credentialApi.getServerDid(),
   });
 
   return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border bg-card px-5 py-3 shadow-tg-sm">
+      {/* Health status */}
+      <div className="flex items-center gap-2">
+        <Activity className="h-4 w-4 text-tg-text-muted" />
+        {health.isLoading ? (
+          <span className="text-sm text-tg-text-muted">Checking...</span>
+        ) : health.data?.ok ? (
+          <>
+            <span className={`inline-block h-2.5 w-2.5 rounded-full ${
+              health.data.data.status === 'ok' ? 'bg-tg-success' : 'bg-tg-warning'
+            }`} />
+            <span className="text-sm font-medium text-tg-text-secondary">
+              {health.data.data.status === 'ok' ? 'System Healthy' : 'Degraded'}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-tg-danger" />
+            <span className="text-sm font-medium text-tg-danger">Unreachable</span>
+          </>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="hidden sm:block h-5 w-px bg-border" />
+
+      {/* Server DID */}
+      <div className="flex items-center gap-2">
+        <Server className="h-4 w-4 text-tg-text-muted" />
+        {serverDid.isLoading ? (
+          <span className="text-sm text-tg-text-muted">Loading DID...</span>
+        ) : serverDid.data?.ok ? (
+          <>
+            <DIDDisplay did={serverDid.data.data.did} />
+            <span className="rounded bg-tg-surface px-1.5 py-0.5 text-xs font-medium text-tg-text-muted">
+              {serverDid.data.data.network}
+            </span>
+          </>
+        ) : (
+          <span className="text-sm text-tg-warning">Server DID not provisioned</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Users Overview Card
+// =============================================================================
+
+function UsersCard() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['dashboardStats'],
+    queryFn: () => dashboardApi.stats(),
+    refetchInterval: 30000,
+  });
+
+  const users = data?.ok ? data.data.users : null;
+
+  return (
     <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
-      <div className="flex items-center gap-2.5 mb-3">
-        <Server className="h-5 w-5 text-tg-text-muted" />
-        <h3 className="text-base font-medium text-tg-text-muted">Server DID</h3>
+      <div className="flex items-center gap-2.5 mb-4">
+        <Users className="h-5 w-5 text-tg-text-muted" />
+        <h3 className="text-base font-medium text-tg-text-muted">Users</h3>
       </div>
       {isLoading ? (
-        <div className="h-12 animate-pulse rounded bg-tg-surface" />
-      ) : data?.ok ? (
-        <div className="space-y-2">
-          <DIDDisplay did={data.data.did} />
-          <p className="text-sm text-tg-text-muted">Network: {data.data.network}</p>
-          {data.data.published_at && (
-            <p className="text-sm text-tg-text-muted">Published: {format(new Date(data.data.published_at), 'PP')}</p>
-          )}
+        <div className="h-16 animate-pulse rounded bg-tg-surface" />
+      ) : users ? (
+        <div className="grid grid-cols-2 gap-3">
+          <MiniStat icon={Users} label="Total" value={users.total} />
+          <MiniStat icon={UserCheck} label="Authorized" value={users.authorized} color="text-tg-success" />
+          <MiniStat icon={ShieldOff} label="Unauthorized" value={users.unauthorized} color="text-tg-warning" />
+          <MiniStat icon={ShieldOff} label="Revoked"
+            value={(users.by_status?.did_revoked ?? 0) + (users.by_status?.deleted ?? 0)}
+            color="text-tg-danger"
+          />
         </div>
       ) : (
-        <p className="text-sm text-tg-warning">Server DID not provisioned</p>
+        <p className="text-sm text-tg-text-muted italic">No data available</p>
       )}
     </div>
   );
 }
 
-function QuickDIDTest() {
-  const [result, setResult] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+// =============================================================================
+// Credentials Overview Card
+// =============================================================================
 
-  const generate = async () => {
-    setLoading(true);
-    try {
-      const res = await identityApi.create({ publish: false });
-      if (res.ok) setResult(res.data);
-    } finally {
-      setLoading(false);
-    }
-  };
+function CredentialsCard() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['dashboardStats'],
+    queryFn: () => dashboardApi.stats(),
+    refetchInterval: 30000,
+  });
+
+  const creds = data?.ok ? data.data.credentials : null;
 
   return (
     <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
-      <div className="flex items-center gap-2.5 mb-3">
-        <Fingerprint className="h-5 w-5 text-tg-text-muted" />
-        <h3 className="text-base font-medium text-tg-text-muted">Quick DID Test</h3>
+      <div className="flex items-center gap-2.5 mb-4">
+        <FileKey className="h-5 w-5 text-tg-text-muted" />
+        <h3 className="text-base font-medium text-tg-text-muted">Credentials</h3>
       </div>
-      <LoadingButton onClick={generate} loading={loading} variant="outline" size="sm">Generate Test DID</LoadingButton>
-      {result && <div className="mt-3"><JsonViewer data={result} collapsed={false} /></div>}
+      {isLoading ? (
+        <div className="h-16 animate-pulse rounded bg-tg-surface" />
+      ) : creds ? (
+        <div className="grid grid-cols-3 gap-3">
+          <MiniStat icon={FileKey} label="Total" value={creds.total} />
+          <MiniStat icon={ShieldCheck} label="Active" value={creds.active} color="text-tg-success" />
+          <MiniStat icon={ShieldOff} label="Revoked" value={creds.revoked} color="text-tg-danger" />
+        </div>
+      ) : (
+        <p className="text-sm text-tg-text-muted italic">No data available</p>
+      )}
     </div>
   );
 }
 
-function SessionStatsSection() {
-  const { data, isLoading } = useQuery({
+// =============================================================================
+// Unified Sessions Card (stats + recent sessions table with DID column)
+// =============================================================================
+
+function UnifiedSessionsCard() {
+  const stats = useQuery({
     queryKey: ['sessionStats'],
     queryFn: () => sessionApi.stats(),
     refetchInterval: 30000,
   });
 
-  if (isLoading || !data?.ok) return null;
-
-  return (
-    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-      <StatCard label="Total Sessions" value={data.data.total} />
-      <StatCard label="Active" value={data.data.active} color="text-tg-info" />
-      <StatCard label="Notarized" value={data.data.notarized} color="text-tg-success" />
-      <StatCard label="Failed" value={data.data.failed} color="text-tg-danger" />
-    </div>
-  );
-}
-
-function RecentSessionsList() {
-  const { data, isLoading } = useQuery({
+  const recent = useQuery({
     queryKey: ['recentSessions'],
     queryFn: () => sessionApi.list({ limit: '5' }),
   });
 
   return (
     <div className="rounded-lg border border-border bg-card shadow-tg-sm">
-      <div className="border-b border-border px-5 py-3.5">
-        <h3 className="text-base font-medium text-tg-text-muted">Recent Sessions</h3>
+      {/* Stats row */}
+      <div className="border-b border-border px-5 py-4">
+        <div className="flex items-center gap-2.5 mb-3">
+          <TrendingUp className="h-5 w-5 text-tg-text-muted" />
+          <h3 className="text-base font-medium text-tg-text-muted">Sessions</h3>
+        </div>
+        {stats.isLoading ? (
+          <div className="h-10 animate-pulse rounded bg-tg-surface" />
+        ) : stats.data?.ok ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <InlineStat label="Total" value={stats.data.data.total} />
+            <InlineStat label="Active" value={stats.data.data.active} color="text-tg-info" />
+            <InlineStat label="Notarized" value={stats.data.data.notarized} color="text-tg-success" />
+            <InlineStat label="Failed" value={stats.data.data.failed} color="text-tg-danger" />
+          </div>
+        ) : null}
+      </div>
+
+      {/* Recent sessions table */}
+      <div className="px-5 py-3">
+        <p className="text-xs font-medium uppercase tracking-wider text-tg-text-muted mb-2">Recent Sessions</p>
+      </div>
+      {/* Table header */}
+      <div className="hidden sm:grid grid-cols-[1fr_1fr_auto_auto] gap-4 px-5 pb-2 text-xs font-medium uppercase tracking-wider text-tg-text-muted border-b border-border">
+        <span>Session ID</span>
+        <span>DID</span>
+        <span>Status</span>
+        <span className="text-right">Started</span>
       </div>
       <div className="divide-y divide-border">
-        {isLoading ? (
-          <div className="p-5"><div className="h-20 animate-pulse rounded bg-tg-surface" /></div>
-        ) : !data?.ok || data.data.sessions.length === 0 ? (
+        {recent.isLoading ? (
+          <div className="p-5"><div className="h-24 animate-pulse rounded bg-tg-surface" /></div>
+        ) : !recent.data?.ok || recent.data.data.sessions.length === 0 ? (
           <p className="p-5 text-sm italic text-tg-text-muted">No sessions recorded yet.</p>
         ) : (
-          data.data.sessions.map((s) => (
-            <div key={s.session_id} className="flex items-center justify-between px-5 py-3.5">
-              <div className="flex items-center gap-3">
-                <code className="text-sm font-mono text-tg-text-secondary">{s.session_id.slice(0, 12)}...</code>
-                <StatusBadge status={s.status} />
+          recent.data.data.sessions.map((s) => (
+            <div key={s.session_id} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2 sm:gap-4 items-center px-5 py-3">
+              <code className="text-sm font-mono text-tg-text-secondary truncate">
+                {s.session_id.slice(0, 16)}...
+              </code>
+              <div className="truncate">
+                {s.did ? (
+                  <DIDDisplay did={s.did} />
+                ) : (
+                  <span className="text-sm text-tg-text-muted italic">—</span>
+                )}
               </div>
-              <span className="text-sm text-tg-text-muted">{format(new Date(s.started_at), 'PP p')}</span>
+              <StatusBadge status={s.status} />
+              <span className="text-sm text-tg-text-muted text-right whitespace-nowrap">
+                {format(new Date(s.started_at), 'PP p')}
+              </span>
             </div>
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Activity Charts Section
+// =============================================================================
+
+function ChartsSection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['dashboardStats'],
+    queryFn: () => dashboardApi.stats(),
+    refetchInterval: 30000,
+  });
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {/* Sessions Activity chart */}
+      <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
+        <div className="flex items-center gap-2.5 mb-4">
+          <TrendingUp className="h-5 w-5 text-tg-text-muted" />
+          <h3 className="text-base font-medium text-tg-text-muted">Sessions Activity</h3>
+          <span className="text-xs text-tg-text-muted ml-auto">Last 30 days</span>
+        </div>
+        {isLoading ? (
+          <div className="h-[280px] animate-pulse rounded bg-tg-surface" />
+        ) : (
+          <SessionsChart data={data?.ok ? data.data.sessions_by_date : []} />
+        )}
+      </div>
+
+      {/* Credentials Issued chart */}
+      <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
+        <div className="flex items-center gap-2.5 mb-4">
+          <BarChart3 className="h-5 w-5 text-tg-text-muted" />
+          <h3 className="text-base font-medium text-tg-text-muted">Credentials Issued</h3>
+          <span className="text-xs text-tg-text-muted ml-auto">Last 30 days</span>
+        </div>
+        {isLoading ? (
+          <div className="h-[280px] animate-pulse rounded bg-tg-surface" />
+        ) : (
+          <CredentialsChart data={data?.ok ? data.data.credentials.by_date : []} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Shared mini components
+// =============================================================================
+
+function MiniStat({ icon: Icon, label, value, color }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  color?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-md bg-tg-surface px-3 py-2">
+      <Icon className="h-4 w-4 text-tg-text-muted shrink-0" />
+      <div className="min-w-0">
+        <p className="text-xs text-tg-text-muted">{label}</p>
+        <p className={`text-lg font-bold tracking-tight ${color || 'text-foreground'}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function InlineStat({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div className="rounded-md bg-tg-surface px-3 py-2 text-center">
+      <p className="text-xs text-tg-text-muted">{label}</p>
+      <p className={`text-2xl font-bold tracking-tight ${color || 'text-foreground'}`}>{value}</p>
     </div>
   );
 }

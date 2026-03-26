@@ -223,6 +223,57 @@ defmodule TangleGate.Store.CredentialStore do
   end
 
   # ============================================================================
+  # Dashboard Aggregations
+  # ============================================================================
+
+  @doc """
+  Count total issued credentials.
+  """
+  @spec count_credentials() :: non_neg_integer()
+  def count_credentials do
+    Mongo.count_documents!(Repo.pool(), @credentials_collection, %{})
+  end
+
+  @doc """
+  Count active (non-revoked) credentials.
+  """
+  @spec count_active_credentials() :: non_neg_integer()
+  def count_active_credentials do
+    Mongo.count_documents!(Repo.pool(), @credentials_collection, %{"revoked" => false})
+  end
+
+  @doc """
+  Count revoked credentials.
+  """
+  @spec count_revoked_credentials() :: non_neg_integer()
+  def count_revoked_credentials do
+    Mongo.count_documents!(Repo.pool(), @credentials_collection, %{"revoked" => true})
+  end
+
+  @doc """
+  Count credentials issued per day over the last `days_back` days.
+
+  Returns a list of `%{"date" => "2026-03-20", "count" => 5}` maps sorted ascending.
+  """
+  @spec credentials_by_date(non_neg_integer()) :: [map()]
+  def credentials_by_date(days_back \\ 30) do
+    cutoff = DateTime.add(DateTime.utc_now(), -days_back * 86_400, :second)
+
+    Repo.pool()
+    |> Mongo.aggregate(@credentials_collection, [
+      %{"$match" => %{"issued_at" => %{"$gte" => cutoff}}},
+      %{"$group" => %{
+        "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$issued_at"}},
+        "count" => %{"$sum" => 1}
+      }},
+      %{"$sort" => %{"_id" => 1}}
+    ])
+    |> Enum.map(fn %{"_id" => date, "count" => count} ->
+      %{"date" => date, "count" => count}
+    end)
+  end
+
+  # ============================================================================
   # Private
   # ============================================================================
 

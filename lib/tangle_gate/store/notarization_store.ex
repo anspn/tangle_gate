@@ -153,6 +153,44 @@ defmodule TangleGate.Store.NotarizationStore do
   end
 
   # ============================================================================
+  # Dashboard Aggregations
+  # ============================================================================
+
+  @doc """
+  Count sessions per day over the last `days_back` days, with status breakdown.
+
+  Returns a list of maps sorted by date ascending:
+
+      [%{"date" => "2026-03-20", "total" => 10, "notarized" => 8, "failed" => 1, "active" => 1}]
+  """
+  @spec sessions_by_date(non_neg_integer()) :: [map()]
+  def sessions_by_date(days_back \\ 30) do
+    cutoff = DateTime.add(DateTime.utc_now(), -days_back * 86_400, :second)
+
+    Repo.pool()
+    |> Mongo.aggregate(@sessions_collection, [
+      %{"$match" => %{"started_at" => %{"$gte" => cutoff}}},
+      %{"$group" => %{
+        "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$started_at"}},
+        "total" => %{"$sum" => 1},
+        "notarized" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "notarized"]}, 1, 0]}},
+        "failed" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "failed"]}, 1, 0]}},
+        "active" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "active"]}, 1, 0]}}
+      }},
+      %{"$sort" => %{"_id" => 1}}
+    ])
+    |> Enum.map(fn %{"_id" => date} = entry ->
+      %{
+        "date" => date,
+        "total" => entry["total"] || 0,
+        "notarized" => entry["notarized"] || 0,
+        "failed" => entry["failed"] || 0,
+        "active" => entry["active"] || 0
+      }
+    end)
+  end
+
+  # ============================================================================
   # Serialization Helpers
   # ============================================================================
 

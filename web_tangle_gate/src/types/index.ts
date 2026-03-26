@@ -177,3 +177,28 @@ export interface HealthResponse {
   nif_loaded: boolean;
   timestamp: string;
 }
+
+// ============================================================================
+// Dashboard
+// ============================================================================
+export interface DashboardStats {
+  users: {
+    total: number;
+    by_status: Record<string, number>;
+    authorized: number;
+    unauthorized: number;
+  };
+  credentials: {
+    total: number;
+    active: number;
+    revoked: number;
+    by_date: Array<{ date: string; count: number }>;
+  };
+  sessions_by_date: Array<{
+    date: string;
+    total: number;
+    notarized: number;
+    failed: number;
+    active: number;
+  }>;
+}

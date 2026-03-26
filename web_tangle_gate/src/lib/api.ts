@@ -3,7 +3,7 @@ import type {
   CreateDidRequest, DidResponse, ApiError, UserInfo, CreateUserRequest,
   AssignDidResponse, AuthorizeResponse, Session, SessionStats,
   CreateVPForSessionRequest, CreateVPForSessionResponse, StartSessionRequest,
-  OnChainNotarization, HashResponse, HealthResponse, ServerDidInfo,
+  OnChainNotarization, HashResponse, HealthResponse, ServerDidInfo, DashboardStats,
 } from '@/types';
 
 const API_BASE = '/api';
@@ -92,6 +92,10 @@ export const healthApi = {
 
 export const credentialApi = {
   getServerDid: () => api<ServerDidInfo>('GET', '/credentials/server-did'),
+};
+
+export const dashboardApi = {
+  stats: () => api<DashboardStats>('GET', '/dashboard/stats'),
 };
 
 export async function downloadSession(sessionId: string): Promise<void> {

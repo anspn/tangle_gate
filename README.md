@@ -60,6 +60,14 @@ TangleGate.Application (rest_for_one)
 
 ## API Reference
 
+### REST API — Admin Dashboard
+
+```
+GET /api/dashboard/stats          — Aggregated dashboard statistics (admin-only)
+```
+
+Returns user counts (total, by status, authorized, with DID), credential counts (total, active, revoked, issued per day over last 30 days), and session time-series data (total, notarized, failed, active per day over last 30 days).
+
 ### Identity
 
 ```elixir

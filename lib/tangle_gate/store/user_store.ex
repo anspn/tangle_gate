@@ -243,6 +243,53 @@ defmodule TangleGate.Store.UserStore do
   end
 
   # ============================================================================
+  # Dashboard Aggregations
+  # ============================================================================
+
+  @doc """
+  Count total dynamic users.
+  """
+  @spec count_users() :: non_neg_integer()
+  def count_users do
+    Mongo.count_documents!(Repo.pool(), @collection, %{})
+  end
+
+  @doc """
+  Count users grouped by status.
+
+  Returns a map like `%{"active" => 10, "did_revoked" => 2, "deleted" => 1}`.
+  """
+  @spec count_users_by_status() :: map()
+  def count_users_by_status do
+    Repo.pool()
+    |> Mongo.aggregate(@collection, [
+      %{"$group" => %{"_id" => %{"$ifNull" => ["$status", "active"]}, "count" => %{"$sum" => 1}}}
+    ])
+    |> Enum.reduce(%{}, fn %{"_id" => status, "count" => count}, acc ->
+      Map.put(acc, status, count)
+    end)
+  end
+
+  @doc """
+  Count users that are authorized.
+  """
+  @spec count_authorized_users() :: non_neg_integer()
+  def count_authorized_users do
+    Mongo.count_documents!(Repo.pool(), @collection, %{"authorized" => true})
+  end
+
+  @doc """
+  Count users that are not authorized but still active (not DID-revoked or deleted).
+  """
+  @spec count_unauthorized_users() :: non_neg_integer()
+  def count_unauthorized_users do
+    Mongo.count_documents!(Repo.pool(), @collection, %{
+      "authorized" => false,
+      "$or" => [%{"status" => "active"}, %{"status" => nil}]
+    })
+  end
+
+  # ============================================================================
   # Password Hashing (PBKDF2-HMAC-SHA256 via :crypto)
   # ============================================================================
 

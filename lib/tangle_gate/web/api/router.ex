@@ -45,6 +45,7 @@ defmodule TangleGate.Web.API.Router do
   # --- Domain routers -------------------------------------------------------
 
   forward("/auth", to: TangleGate.Web.API.AuthHandler)
+  forward("/dashboard", to: TangleGate.Web.API.DashboardHandler)
   forward("/dids", to: TangleGate.Web.API.IdentityHandler)
   forward("/credentials", to: TangleGate.Web.API.CredentialHandler)
   forward("/sessions", to: TangleGate.Web.API.SessionHandler)
