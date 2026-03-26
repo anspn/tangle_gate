@@ -6,6 +6,7 @@ interface AuthState {
   role: 'admin' | 'user' | 'verifier' | null;
   user: User | null;
   isLoggedIn: boolean;
+  ready: boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
   initialize: () => void;
@@ -16,6 +17,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   role: null,
   user: null,
   isLoggedIn: false,
+  ready: false,
 
   login: (token, user) => {
     sessionStorage.setItem('iota_token', token);
@@ -36,7 +38,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     const token = sessionStorage.getItem('iota_token');
     const role = sessionStorage.getItem('iota_role') as AuthState['role'];
     if (token && role) {
-      set({ token, role, isLoggedIn: true, user: { id: '', email: '', role } });
+      set({ token, role, isLoggedIn: true, user: { id: '', email: '', role }, ready: true });
+    } else {
+      set({ ready: true });
     }
   },
 }));

@@ -9,7 +9,7 @@ management and data notarization.
 - **Verifiable Credentials**: Issue and verify W3C Verifiable Credentials as signed JWTs
 - **Verifiable Presentations**: Create and verify W3C Verifiable Presentations with challenge/expiry
 - **DID-based 2FA**: Login with email/password + DID triggers credential issuance and revocation
-- **User Management**: Admin can create dynamic users, assign DIDs, and authorize/unauthorize terminal access
+- **User Management**: Admin can create dynamic users, assign DIDs, authorize/unauthorize, revoke DIDs on-chain, and delete users
 - **Credential Revocation**: Server-side revocation tracking in MongoDB (TODO: on-chain via revocation bitmaps)
 - **Notarization**: Timestamp and hash-anchor data for Tangle submission
 - **Supervised Architecture**: Fault-tolerant supervision tree

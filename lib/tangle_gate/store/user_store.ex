@@ -9,7 +9,7 @@ defmodule TangleGate.Store.UserStore do
   ## Collections
 
   - `users` — Dynamic users created by the admin at runtime.
-    Fields: email, password_hash, salt, role, did, authorized, created_at, updated_at
+    Fields: email, password_hash, salt, role, did, authorized, status, created_at, updated_at
 
   ## Password Hashing
 
@@ -159,6 +159,52 @@ defmodule TangleGate.Store.UserStore do
   end
 
   @doc """
+  Set the status for a user (e.g. `"active"`, `"did_revoked"`, `"deleted"`).
+
+  Returns `:ok` or `{:error, reason}`.
+  """
+  @spec set_status(String.t(), String.t()) :: :ok | {:error, term()}
+  def set_status(email, status) when status in ["active", "did_revoked", "deleted"] do
+    case Mongo.update_one(
+           Repo.pool(),
+           @collection,
+           %{"email" => email},
+           %{"$set" => %{"status" => status, "updated_at" => DateTime.utc_now()}}
+         ) do
+      {:ok, %Mongo.UpdateResult{matched_count: 1}} -> :ok
+      {:ok, %Mongo.UpdateResult{matched_count: 0}} -> {:error, "User not found: #{email}"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Disable a user by clearing their password hash so they can no longer authenticate.
+
+  Returns `:ok` or `{:error, reason}`.
+  """
+  @spec disable_user(String.t()) :: :ok | {:error, term()}
+  def disable_user(email) do
+    case Mongo.update_one(
+           Repo.pool(),
+           @collection,
+           %{"email" => email},
+           %{
+             "$set" => %{
+               "password_hash" => nil,
+               "salt" => nil,
+               "authorized" => false,
+               "status" => "deleted",
+               "updated_at" => DateTime.utc_now()
+             }
+           }
+         ) do
+      {:ok, %Mongo.UpdateResult{matched_count: 1}} -> :ok
+      {:ok, %Mongo.UpdateResult{matched_count: 0}} -> {:error, "User not found: #{email}"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
   List all dynamic users.
   """
   @spec list_users(keyword()) :: [map()]
@@ -230,6 +276,7 @@ defmodule TangleGate.Store.UserStore do
       role: doc["role"],
       did: doc["did"],
       authorized: doc["authorized"] || false,
+      status: doc["status"] || "active",
       private_key_jwk: doc["private_key_jwk"],
       verification_method_fragment: doc["verification_method_fragment"],
       created_at: doc["created_at"],

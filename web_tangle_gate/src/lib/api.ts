@@ -64,6 +64,9 @@ export const userApi = {
   assignDid: (email: string) => api<AssignDidResponse>('POST', `/credentials/users/${encodeURIComponent(email)}/assign-did`, {}),
   authorize: (email: string) => api<AuthorizeResponse>('POST', `/credentials/users/${encodeURIComponent(email)}/authorize`, {}),
   unauthorize: (email: string) => api<ApiError>('POST', `/credentials/users/${encodeURIComponent(email)}/unauthorize`, {}),
+  revokeDid: (email: string) => api<{ email: string; did: string; status: string; message: string }>('POST', `/credentials/users/${encodeURIComponent(email)}/revoke-did`, {}),
+  deleteUser: (email: string) => api<{ email: string; did: string; status: string; message: string }>('POST', `/credentials/users/${encodeURIComponent(email)}/delete`, {}),
+  reactivateDid: (email: string) => api<AssignDidResponse>('POST', `/credentials/users/${encodeURIComponent(email)}/reactivate-did`, {}),
 };
 
 export const sessionApi = {

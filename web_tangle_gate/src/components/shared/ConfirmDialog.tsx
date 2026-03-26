@@ -11,9 +11,11 @@ interface ConfirmDialogProps {
   message: string;
   onConfirm: () => void;
   destructive?: boolean;
+  confirmLabel?: string;
+  cancelLabel?: string;
 }
 
-export function ConfirmDialog({ trigger, title = 'Are you sure?', message, onConfirm, destructive = true }: ConfirmDialogProps) {
+export function ConfirmDialog({ trigger, title = 'Are you sure?', message, onConfirm, destructive = true, confirmLabel = 'Confirm', cancelLabel = 'Cancel' }: ConfirmDialogProps) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
@@ -23,12 +25,12 @@ export function ConfirmDialog({ trigger, title = 'Are you sure?', message, onCon
           <AlertDialogDescription>{message}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
             className={destructive ? 'bg-tg-danger hover:bg-tg-danger/90' : ''}
           >
-            Confirm
+            {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

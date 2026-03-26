@@ -59,6 +59,7 @@ export interface UserInfo {
   role: string;
   did: string | null;
   authorized?: boolean;
+  status?: 'active' | 'did_revoked' | 'deleted';
   source: 'dynamic' | 'config';
 }
 

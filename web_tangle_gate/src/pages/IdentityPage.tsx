@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { LoadingButton } from '@/components/shared/LoadingButton';
 import { InlineNotice, PageHeader, EmptyState } from '@/components/shared/UIElements';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -15,83 +14,17 @@ import { identityApi, userApi } from '@/lib/api';
 import type { UserInfo, AssignDidResponse, AuthorizeResponse } from '@/types';
 
 export default function IdentityPage() {
-  const [lastCreatedDid, setLastCreatedDid] = useState('');
-
   return (
     <div className="space-y-6">
-      <PageHeader title="Identity Management" subtitle="Create, resolve, and manage DIDs and users" />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <CreateDIDForm onCreated={setLastCreatedDid} />
-        <ResolveDIDForm initialDid={lastCreatedDid} />
-      </div>
-      <DeactivateDIDForm initialDid={lastCreatedDid} />
+      <PageHeader title="Identity Management" subtitle="Manage users and resolve DIDs" />
       <UserManagementSection />
+      <ResolveDIDForm />
     </div>
   );
 }
 
-function CreateDIDForm({ onCreated }: { onCreated: (did: string) => void }) {
-  const [publish, setPublish] = useState(true);
-  const [network, setNetwork] = useState<string>('iota');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const req: any = { publish };
-      if (!publish) req.network = network;
-      const res = await identityApi.create(req);
-      if (res.ok) {
-        setResult(res.data);
-        onCreated(res.data.did);
-        toast.success('DID created successfully');
-      } else {
-        setError((res.data as any).message || 'Failed to create DID');
-      }
-    } catch {
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
-      <h3 className="text-sm font-semibold mb-4 text-foreground">Create DID</h3>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="flex items-center gap-3">
-          <Switch checked={publish} onCheckedChange={setPublish} />
-          <Label>{publish ? 'Publish on-chain' : 'Generate locally'}</Label>
-        </div>
-        {!publish && (
-          <div className="space-y-2">
-            <Label>Network</Label>
-            <Select value={network} onValueChange={setNetwork}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {['iota', 'smr', 'rms', 'atoi'].map(n => (
-                  <SelectItem key={n} value={n}>{n.toUpperCase()}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {error && <InlineNotice type="error" message={error} />}
-        <LoadingButton type="submit" loading={loading}>
-          {publish ? 'Publish DID' : 'Generate Local DID'}
-        </LoadingButton>
-      </form>
-      {result && <div className="mt-4"><JsonViewer data={result} collapsed={false} /></div>}
-    </div>
-  );
-}
-
-function ResolveDIDForm({ initialDid }: { initialDid: string }) {
-  const [did, setDid] = useState(initialDid);
+function ResolveDIDForm() {
+  const [did, setDid] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
@@ -106,8 +39,15 @@ function ResolveDIDForm({ initialDid }: { initialDid: string }) {
     setLoading(true);
     try {
       const res = await identityApi.resolve(did);
-      if (res.ok) setResult(res.data);
-      else setError(res.status === 404 ? 'DID not found on-chain' : (res.data as any).message || 'Failed');
+      if (res.ok) {
+        const data = { ...res.data };
+        if (typeof data.document === 'string') {
+          try { data.document = JSON.parse(data.document); } catch { /* keep as string */ }
+        }
+        setResult(data);
+      } else {
+        setError(res.status === 404 ? 'DID not found on-chain' : (res.data as any).message || 'Failed');
+      }
     } catch {
       setError('Connection failed');
     } finally {
@@ -131,49 +71,21 @@ function ResolveDIDForm({ initialDid }: { initialDid: string }) {
   );
 }
 
-function DeactivateDIDForm({ initialDid }: { initialDid: string }) {
-  const [did, setDid] = useState(initialDid);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState('');
+function getUserStatus(u: UserInfo): string {
+  if (u.status === 'deleted') return 'Deleted';
+  if (u.status === 'did_revoked') return 'DID Revoked';
+  if (!u.did) return '—';
+  return u.authorized ? 'Authorized' : 'Unauthorized';
+}
 
-  const handleDeactivate = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      const res = await identityApi.revoke(did);
-      if (res.ok) {
-        setResult(res.data);
-        toast.success('DID deactivated');
-      } else {
-        setError((res.data as any).message || 'Failed to deactivate');
-      }
-    } catch {
-      setError('Connection failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
-      <h3 className="text-sm font-semibold mb-4 text-foreground">Deactivate DID</h3>
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label>DID</Label>
-          <Input value={did} onChange={(e) => setDid(e.target.value)} placeholder="did:iota:0x..." />
-        </div>
-        <p className="text-xs text-tg-danger font-medium">This action is irreversible.</p>
-        {error && <InlineNotice type="error" message={error} />}
-        <ConfirmDialog
-          trigger={<LoadingButton loading={loading} variant="destructive">Deactivate</LoadingButton>}
-          message="This will permanently deactivate the DID on-chain. This action cannot be undone."
-          onConfirm={handleDeactivate}
-        />
-      </div>
-      {result && <div className="mt-4"><JsonViewer data={result} collapsed={false} /></div>}
-    </div>
-  );
+function getStatusColor(status: string): string {
+  switch (status) {
+    case 'Authorized': return 'text-tg-success';
+    case 'Unauthorized': return 'text-tg-warning';
+    case 'DID Revoked': return 'text-tg-danger';
+    case 'Deleted': return 'text-tg-text-muted line-through';
+    default: return 'text-tg-text-muted';
+  }
 }
 
 function UserManagementSection() {
@@ -259,6 +171,51 @@ function UserManagementSection() {
     }
   };
 
+  const handleRevokeDid = async (userEmail: string) => {
+    try {
+      const res = await userApi.revokeDid(userEmail);
+      if (res.ok) {
+        toast.success('DID revoked on-chain.');
+        setActionResult(null);
+        queryClient.invalidateQueries({ queryKey: ['users'] });
+      } else {
+        toast.error((res.data as any).message || 'Failed to revoke DID');
+      }
+    } catch {
+      toast.error('Connection failed');
+    }
+  };
+
+  const handleDeleteUser = async (userEmail: string) => {
+    try {
+      const res = await userApi.deleteUser(userEmail);
+      if (res.ok) {
+        toast.success('User deleted.');
+        setActionResult(null);
+        queryClient.invalidateQueries({ queryKey: ['users'] });
+      } else {
+        toast.error((res.data as any).message || 'Failed to delete user');
+      }
+    } catch {
+      toast.error('Connection failed');
+    }
+  };
+
+  const handleReactivateDid = async (userEmail: string) => {
+    try {
+      const res = await userApi.reactivateDid(userEmail);
+      if (res.ok) {
+        toast.success('New DID assigned successfully.');
+        setActionResult({ type: 'assign', data: res.data as AssignDidResponse });
+        queryClient.invalidateQueries({ queryKey: ['users'] });
+      } else {
+        toast.error((res.data as any).message || 'Failed to reactivate DID');
+      }
+    } catch {
+      toast.error('Connection failed');
+    }
+  };
+
   return (
     <div className="rounded-lg border border-border bg-card shadow-tg-sm">
       <div className="border-b border-border px-5 py-3">
@@ -300,50 +257,81 @@ function UserManagementSection() {
                   <th className="pb-2 pr-4">Email</th>
                   <th className="pb-2 pr-4">Role</th>
                   <th className="pb-2 pr-4">DID</th>
-                  <th className="pb-2 pr-4">Authorized</th>
-                  <th className="pb-2 pr-4">Source</th>
+                  <th className="pb-2 pr-4">Status</th>
                   <th className="pb-2">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {data.data.users.map((u: UserInfo) => (
+                {data.data.users.map((u: UserInfo) => {
+                  const status = getUserStatus(u);
+                  return (
                   <tr key={u.email} className="hover:bg-tg-surface transition-colors">
                     <td className="py-3 pr-4 text-foreground">{u.email}</td>
                     <td className="py-3 pr-4"><StatusBadge status={u.role} /></td>
                     <td className="py-3 pr-4">{u.did ? <DIDDisplay did={u.did} /> : <span className="text-tg-text-muted">None</span>}</td>
                     <td className="py-3 pr-4">
-                      {u.did ? (
-                        u.authorized
-                          ? <span className="text-xs text-tg-success font-medium">Authorized</span>
-                          : <span className="text-xs text-tg-danger font-medium">Unauthorized</span>
-                      ) : <span className="text-tg-text-muted">—</span>}
+                      <span className={`text-xs font-medium ${getStatusColor(status)}`}>{status}</span>
                     </td>
-                    <td className="py-3 pr-4"><span className="text-xs text-tg-text-muted">{u.source}</span></td>
                     <td className="py-3">
-                      {u.source === 'dynamic' && (
-                        <>
-                          {!u.did && (
-                            <LoadingButton size="sm" variant="outline" onClick={() => handleAssignDid(u.email)}>
-                              Assign DID
-                            </LoadingButton>
+                      {u.source === 'dynamic' && status !== 'Deleted' && (
+                        <div className="flex gap-2 flex-wrap">
+                          {status !== 'DID Revoked' && (
+                            <>
+                              {!u.did && (
+                                <LoadingButton size="sm" variant="outline" onClick={() => handleAssignDid(u.email)}>
+                                  Assign DID
+                                </LoadingButton>
+                              )}
+                              {u.did && !u.authorized && (
+                                <LoadingButton size="sm" variant="outline" onClick={() => handleAuthorize(u.email)}>
+                                  Authorize
+                                </LoadingButton>
+                              )}
+                              {u.did && u.authorized && (
+                                <ConfirmDialog
+                                  trigger={<LoadingButton size="sm" variant="outline">Unauthorize</LoadingButton>}
+                                  message={`Revoke credentials for ${u.email}?`}
+                                  cancelLabel="Go back"
+                                  onConfirm={() => handleUnauthorize(u.email)}
+                                />
+                              )}
+                              {u.did && (
+                                <ConfirmDialog
+                                  trigger={<LoadingButton size="sm" variant="outline">Revoke DID</LoadingButton>}
+                                  title="Revoke DID"
+                                  message={`This will permanently deactivate the DID assigned to ${u.email} on-chain. This action is irreversible.`}
+                                  confirmLabel="Revoke"
+                                  cancelLabel="Go back"
+                                  onConfirm={() => handleRevokeDid(u.email)}
+                                />
+                              )}
+                            </>
                           )}
-                          {u.did && !u.authorized && (
-                            <LoadingButton size="sm" variant="outline" onClick={() => handleAuthorize(u.email)}>
-                              Authorize
-                            </LoadingButton>
-                          )}
-                          {u.did && u.authorized && (
+                          {status === 'DID Revoked' && (
                             <ConfirmDialog
-                              trigger={<LoadingButton size="sm" variant="outline">Unauthorize</LoadingButton>}
-                              message={`Revoke credentials for ${u.email}?`}
-                              onConfirm={() => handleUnauthorize(u.email)}
+                              trigger={<LoadingButton size="sm" variant="outline">Reactivate DID</LoadingButton>}
+                              title="Reactivate DID"
+                              message={`The previous DID was permanently deactivated. This will generate and publish a new DID on-chain for ${u.email}, resetting their status to Unauthorized.`}
+                              confirmLabel="Reactivate"
+                              cancelLabel="Go back"
+                              destructive={false}
+                              onConfirm={() => handleReactivateDid(u.email)}
                             />
                           )}
-                        </>
+                          <ConfirmDialog
+                            trigger={<LoadingButton size="sm" variant="destructive">Delete User</LoadingButton>}
+                            title="Delete User"
+                            message={`This will irreversibly delete ${u.email}'s credentials from the system. Their DID will be revoked on-chain and their access will be permanently disabled.`}
+                            confirmLabel="Delete"
+                            cancelLabel="Go back"
+                            onConfirm={() => handleDeleteUser(u.email)}
+                          />
+                        </div>
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

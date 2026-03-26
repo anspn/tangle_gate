@@ -8,8 +8,9 @@ const roleLanding = {
 };
 
 export function RequireAuth({ roles, children }: { roles: string[]; children: React.ReactNode }) {
-  const { isLoggedIn, role } = useAuthStore();
+  const { isLoggedIn, role, ready } = useAuthStore();
 
+  if (!ready) return null;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
   if (role && !roles.includes(role)) {
     return <Navigate to={roleLanding[role as keyof typeof roleLanding] || '/login'} replace />;
@@ -19,8 +20,9 @@ export function RequireAuth({ roles, children }: { roles: string[]; children: Re
 }
 
 export function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
-  const { isLoggedIn, role } = useAuthStore();
+  const { isLoggedIn, role, ready } = useAuthStore();
 
+  if (!ready) return null;
   if (isLoggedIn && role) {
     return <Navigate to={roleLanding[role as keyof typeof roleLanding] || '/'} replace />;
   }

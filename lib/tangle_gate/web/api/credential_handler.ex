@@ -18,6 +18,9 @@ defmodule TangleGate.Web.API.CredentialHandler do
   - `POST /api/credentials/users/:email/assign-did` — Create a DID and assign to user (admin)
   - `POST /api/credentials/users/:email/authorize` — Authorize user (issue VC) (admin)
   - `POST /api/credentials/users/:email/unauthorize` — Unauthorize user (revoke VC) (admin)
+  - `POST /api/credentials/users/:email/revoke-did` — Revoke DID on-chain (admin, irreversible)
+  - `POST /api/credentials/users/:email/reactivate-did` — Assign new DID after revocation (admin)
+  - `POST /api/credentials/users/:email/delete`   — Delete user (revoke DID + disable access) (admin)
   """
 
   use Plug.Router
@@ -196,6 +199,30 @@ defmodule TangleGate.Web.API.CredentialHandler do
     if conn.halted, do: conn, else: do_unauthorize_user(conn, conn.params["email"])
   end
 
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users/:email/revoke-did — Revoke DID on-chain (admin)
+  # ---------------------------------------------------------------------------
+  post "/users/:email/revoke-did" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_revoke_user_did(conn, conn.params["email"])
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users/:email/delete — Delete user (admin)
+  # ---------------------------------------------------------------------------
+  post "/users/:email/delete" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_delete_user(conn, conn.params["email"])
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users/:email/reactivate-did — Assign new DID after revocation (admin)
+  # ---------------------------------------------------------------------------
+  post "/users/:email/reactivate-did" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_reactivate_did(conn, conn.params["email"])
+  end
+
   match _ do
     Helpers.json(conn, 404, %{error: "not_found", message: "Credential route not found"})
   end
@@ -366,6 +393,12 @@ defmodule TangleGate.Web.API.CredentialHandler do
           Map.put(u, :source, "dynamic")
         end) ++ static_users
 
+      # Include status field in all users
+      all_users =
+        Enum.map(all_users, fn u ->
+          Map.put_new(u, :status, "active")
+        end)
+
       Helpers.json(conn, 200, %{users: all_users, count: length(all_users)})
     else
       Helpers.json(conn, 503, %{
@@ -527,6 +560,197 @@ defmodule TangleGate.Web.API.CredentialHandler do
             authorized: false,
             message: "User unauthorized. All credentials for this DID have been revoked."
           })
+        end
+    end
+  end
+
+  defp do_revoke_user_did(conn, email) do
+    case UserStore.get_user_by_email(email) do
+      :not_found ->
+        Helpers.json(conn, 404, %{error: "not_found", message: "User not found: #{email}"})
+
+      {:ok, user} ->
+        cond do
+          is_nil(user.did) ->
+            Helpers.json(conn, 422, %{
+              error: "no_did",
+              message: "User has no DID assigned."
+            })
+
+          user.status == "did_revoked" ->
+            Helpers.json(conn, 409, %{
+              error: "already_revoked",
+              message: "DID is already revoked for this user."
+            })
+
+          true ->
+            # 1. Deactivate the DID on-chain
+            secret_key = Application.get_env(:tangle_gate, :secret_key)
+
+            unless secret_key && secret_key != "" do
+              Helpers.json(conn, 503, %{
+                error: "not_configured",
+                message: "Server secret_key is not configured — cannot revoke DIDs"
+              })
+            else
+              opts =
+                [secret_key: secret_key]
+                |> maybe_put(:node_url, Application.get_env(:tangle_gate, :node_url))
+                |> maybe_put(:identity_pkg_id, Application.get_env(:tangle_gate, :identity_pkg_id))
+
+              case TangleGate.deactivate_did(user.did, opts) do
+                {:ok, _} ->
+                  # 2. Revoke all credentials for this DID
+                  if Application.get_env(:tangle_gate, :start_repo, true) do
+                    TangleGate.Store.CredentialStore.revoke_credentials_for_holder(user.did)
+                  end
+
+                  # 3. Mark user status as did_revoked
+                  :ok = UserStore.set_authorized(email, false)
+                  :ok = UserStore.set_status(email, "did_revoked")
+
+                  Helpers.json(conn, 200, %{
+                    email: email,
+                    did: user.did,
+                    status: "did_revoked",
+                    message: "DID has been permanently deactivated on-chain and all credentials revoked."
+                  })
+
+                {:error, reason} ->
+                  Helpers.json(conn, 500, %{
+                    error: "revoke_failed",
+                    message: "Failed to deactivate DID on-chain: #{inspect(reason)}"
+                  })
+              end
+            end
+        end
+    end
+  end
+
+  defp do_delete_user(conn, email) do
+    case UserStore.get_user_by_email(email) do
+      :not_found ->
+        Helpers.json(conn, 404, %{error: "not_found", message: "User not found: #{email}"})
+
+      {:ok, user} ->
+        # 1. If user has a DID that hasn't been revoked yet, deactivate it on-chain
+        did_revoke_result =
+          if user.did && user.status != "did_revoked" do
+            secret_key = Application.get_env(:tangle_gate, :secret_key)
+
+            if secret_key && secret_key != "" do
+              opts =
+                [secret_key: secret_key]
+                |> maybe_put(:node_url, Application.get_env(:tangle_gate, :node_url))
+                |> maybe_put(:identity_pkg_id, Application.get_env(:tangle_gate, :identity_pkg_id))
+
+              TangleGate.deactivate_did(user.did, opts)
+            else
+              {:error, "secret_key not configured"}
+            end
+          else
+            :ok
+          end
+
+        case did_revoke_result do
+          {:error, reason} ->
+            Helpers.json(conn, 500, %{
+              error: "delete_failed",
+              message: "Failed to deactivate DID on-chain: #{inspect(reason)}"
+            })
+
+          _ ->
+            # 2. Revoke all credentials
+            if user.did && Application.get_env(:tangle_gate, :start_repo, true) do
+              TangleGate.Store.CredentialStore.revoke_credentials_for_holder(user.did)
+            end
+
+            # 3. Disable the user (clear credentials)
+            :ok = UserStore.disable_user(email)
+
+            Helpers.json(conn, 200, %{
+              email: email,
+              did: user.did,
+              status: "deleted",
+              message: "User deleted. DID revoked on-chain and access credentials disabled."
+            })
+        end
+    end
+  end
+
+  defp do_reactivate_did(conn, email) do
+    case UserStore.get_user_by_email(email) do
+      :not_found ->
+        Helpers.json(conn, 404, %{error: "not_found", message: "User not found: #{email}"})
+
+      {:ok, user} ->
+        unless user.status == "did_revoked" do
+          Helpers.json(conn, 422, %{
+            error: "invalid_state",
+            message: "User DID is not revoked. Only users with a revoked DID can be reactivated."
+          })
+        else
+          secret_key = Application.get_env(:tangle_gate, :secret_key)
+
+          unless secret_key && secret_key != "" do
+            Helpers.json(conn, 503, %{
+              error: "not_configured",
+              message: "Server secret_key is not configured — cannot create DIDs"
+            })
+          else
+            publish_opts =
+              [secret_key: secret_key, network: :iota]
+              |> maybe_put(:node_url, Application.get_env(:tangle_gate, :node_url))
+              |> maybe_put(:identity_pkg_id, Application.get_env(:tangle_gate, :identity_pkg_id))
+
+            # 1. Generate and publish a new DID on-chain
+            case IdentityServer.publish_did(publish_opts) do
+              {:ok, did_result} ->
+                did = did_result.did
+                private_key_jwk = did_result.private_key_jwk
+                fragment = did_result.verification_method_fragment
+
+                # 2. Assign the new DID to the user in MongoDB
+                case UserStore.assign_did(email, did, private_key_jwk, fragment) do
+                  {:ok, _user} ->
+                    # 3. Reset status to active (unauthorized)
+                    :ok = UserStore.set_status(email, "active")
+                    :ok = UserStore.set_authorized(email, false)
+
+                    parsed_jwk =
+                      case Jason.decode(private_key_jwk) do
+                        {:ok, obj} -> obj
+                        {:error, _} -> private_key_jwk
+                      end
+
+                    Helpers.json(conn, 200, %{
+                      email: email,
+                      did: did,
+                      did_document: did_result.document,
+                      verification_method_fragment: fragment,
+                      private_key_jwk: parsed_jwk,
+                      message:
+                        "New DID created and published on-chain (previous DID was permanently deactivated). " <>
+                          "Use the Authorize button to issue a credential when ready."
+                    })
+
+                  {:error, reason} when is_binary(reason) ->
+                    Helpers.json(conn, 404, %{error: "assign_failed", message: reason})
+
+                  {:error, reason} ->
+                    Helpers.json(conn, 500, %{
+                      error: "assign_failed",
+                      message: "DID created (#{did}) but assignment failed: #{inspect(reason)}"
+                    })
+                end
+
+              {:error, reason} ->
+                Helpers.json(conn, 500, %{
+                  error: "did_creation_failed",
+                  message: "Failed to create new DID: #{inspect(reason)}"
+                })
+            end
+          end
         end
     end
   end
