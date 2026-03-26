@@ -4,7 +4,7 @@ defmodule TangleGate.MixProject do
   def project do
     [
       app: :tangle_gate,
-      version: "1.1.1",
+      version: "1.2.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
