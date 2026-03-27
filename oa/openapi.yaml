@@ -694,10 +694,27 @@ paths:
                     type: string
                   state_data:
                     type: string
+                  state_metadata:
+                    type: string
+                    nullable: true
                   description:
                     type: string
+                  method:
+                    type: string
+                    enum: [Locked, Dynamic]
+                    description: Notarization method — Locked (immutable) or Dynamic (updatable)
                   immutable:
                     type: boolean
+                    description: Derived from method — true when method is Locked
+                  created_at:
+                    type: number
+                    description: Creation timestamp (epoch ms)
+                  last_state_change_at:
+                    type: number
+                    description: Last state change timestamp (epoch ms)
+                  state_version_count:
+                    type: integer
+                    description: Number of state changes (always 1 for locked)
 
   /verify/hash:
     post:

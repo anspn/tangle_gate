@@ -7,11 +7,10 @@
 
   <article>
     <header>
-      <h3>On-Chain Verification</h3>
+      <h3>Search Object</h3>
     </header>
     <p>
-      Enter the <strong>Object ID</strong> of a notarized session to read its on-chain data
-      and verify it against a local document hash.
+      Enter the <strong>Object ID</strong> of a notarized session to read its on-chain data.
     </p>
 
     <div class="grid">
@@ -23,9 +22,20 @@
       </label>
     </div>
 
-    <button id="btn-verify-read" aria-busy="false">
-      Read On-Chain Data
-    </button>
+    <div id="verify-onchain-empty-warning" class="notice error" style="display:none;">
+      An empty input will never match any document
+    </div>
+
+    <div id="verify-error" class="notice error" style="display:none;"></div>
+
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+      <button id="btn-verify-read" aria-busy="false">
+        Compute Hash
+      </button>
+      <button id="btn-verify-read-clear" class="outline secondary" style="display:none;">
+        Clear Content
+      </button>
+    </div>
 
     <!-- On-chain result -->
     <div id="verify-onchain-result" style="display:none;">
@@ -51,18 +61,19 @@
           <span id="verify-result-immutable"></span>
         </div>
       </div>
+      <div>
+        <small>Notarized On</small>
+        <span id="verify-result-date"></span>
+      </div>
     </div>
-
-    <div id="verify-error" class="notice error" style="display:none;"></div>
   </article>
 
   <article>
     <header>
-      <h3>Document Hash Verification</h3>
+      <h3>Document Hash</h3>
     </header>
     <p>
-      Upload or paste the session document JSON to compute its SHA-256 hash and compare
-      it against the on-chain data.
+      Upload or paste the session document JSON to compute its SHA-256 hash.
     </p>
 
     <label>
@@ -71,17 +82,36 @@
                 placeholder='Paste the downloaded session document JSON here, or use the file picker below...'></textarea>
     </label>
 
-    <label>
-      Or upload a file
-      <input type="file" id="verify-file-input" accept=".json,application/json" />
-    </label>
+    <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
+      <span>Or upload file</span>
+      <input type="file" id="verify-file-input" accept=".json,application/json" style="max-width:300px;" />
+    </div>
 
-    <button id="btn-verify-hash" class="outline" aria-busy="false">
-      Compute &amp; Compare Hash
-    </button>
+    <div id="verify-empty-warning" class="notice error" style="display:none;">
+      An empty input will never match any document
+    </div>
 
-    <div id="verify-hash-result" style="display:none;">
-      <hr />
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+      <button id="btn-verify-hash" class="outline" aria-busy="false">
+        Compute Hash
+      </button>
+      <button id="btn-verify-clear" class="outline secondary" style="display:none;">
+        Clear Content
+      </button>
+    </div>
+
+    <div id="verify-computed-hash-display" style="display:none; margin-top:1em;">
+      <small>Content Hash</small>
+      <code id="verify-computed-hash-value" style="word-break:break-all;"></code>
+    </div>
+  </article>
+
+  <button id="btn-verify-match" aria-busy="false" style="width:100%; font-size:1.1rem; font-weight:600; padding:0.75rem 1.5rem;">
+    Verify Match
+  </button>
+
+  <div id="verify-match-section" style="display:none;">
+    <article>
       <h4>Comparison</h4>
       <div>
         <small>Computed SHA-256</small>
@@ -92,6 +122,6 @@
         <code id="verify-onchain-hash" style="word-break:break-all;"></code>
       </div>
       <div id="verify-match-result" style="margin-top:1em; font-weight:600;"></div>
-    </div>
-  </article>
+    </article>
+  </div>
 </section>

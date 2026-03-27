@@ -1,13 +1,14 @@
 import { cn } from '@/lib/utils';
-import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 
 const typeConfig = {
   success: { className: 'bg-tg-success-bg border-tg-success text-tg-success', icon: CheckCircle2 },
   error: { className: 'bg-tg-danger-bg border-tg-danger text-tg-danger', icon: AlertCircle },
+  warning: { className: 'bg-amber-50 border-amber-400 text-amber-700 dark:bg-amber-950/30 dark:border-amber-600 dark:text-amber-400', icon: AlertTriangle },
   info: { className: 'bg-tg-info-bg border-tg-info text-tg-info', icon: Info },
 };
 
-export function InlineNotice({ type, message }: { type: 'success' | 'error' | 'info'; message: string }) {
+export function InlineNotice({ type, message }: { type: 'success' | 'error' | 'warning' | 'info'; message: string }) {
   const config = typeConfig[type];
   const Icon = config.icon;
 

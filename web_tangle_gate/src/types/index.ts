@@ -159,8 +159,13 @@ export interface StartSessionRequest {
 export interface OnChainNotarization {
   object_id: string;
   state_data: string;
+  state_metadata: string | null;
   description: string;
+  method: 'Locked' | 'Dynamic';
   immutable: boolean;
+  created_at: number;
+  last_state_change_at: number;
+  state_version_count: number;
 }
 
 export interface HashResponse {

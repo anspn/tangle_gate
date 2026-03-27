@@ -1045,14 +1045,54 @@ function initVerify() {
   if (requireRole(["admin", "verifier"])) return;
 
   let onChainHash = null;
+  let computedHashValue = null;
 
-  readBtn.addEventListener("click", async () => {
-    const objectId = document.getElementById("verify-object-id").value.trim();
-    if (!objectId) return;
+  // --- On-chain card elements ---
+  const objectIdInput = document.getElementById("verify-object-id");
+  const onChainEmptyWarning = document.getElementById("verify-onchain-empty-warning");
+  const errorEl = document.getElementById("verify-error");
+  const resultEl = document.getElementById("verify-onchain-result");
+  const readClearBtn = document.getElementById("btn-verify-read-clear");
+
+  function updateReadClearButton() {
+    if (readClearBtn) {
+      readClearBtn.style.display = objectIdInput.value.trim() ? "inline-block" : "none";
+    }
+  }
+
+  objectIdInput.addEventListener("input", () => {
+    onChainHash = null;
+    if (onChainEmptyWarning) onChainEmptyWarning.style.display = "none";
+    errorEl.style.display = "none";
+    resultEl.style.display = "none";
+    updateReadClearButton();
+  });
+
+  if (readClearBtn) {
+    readClearBtn.addEventListener("click", () => {
+      objectIdInput.value = "";
+      onChainHash = null;
+      if (onChainEmptyWarning) onChainEmptyWarning.style.display = "none";
+      errorEl.style.display = "none";
+      resultEl.style.display = "none";
+      const matchSection = document.getElementById("verify-match-section");
+      if (matchSection) matchSection.style.display = "none";
+      updateReadClearButton();
+    });
+  }
+
+  updateReadClearButton();
+
+  // Shared read-on-chain function (used by both Compute Hash button and Verify Match)
+  async function readOnChain() {
+    const objectId = objectIdInput.value.trim();
+    if (!objectId) {
+      if (onChainEmptyWarning) onChainEmptyWarning.style.display = "block";
+      return null;
+    }
+    if (onChainEmptyWarning) onChainEmptyWarning.style.display = "none";
 
     setLoading("btn-verify-read", true);
-    const errorEl = document.getElementById("verify-error");
-    const resultEl = document.getElementById("verify-onchain-result");
     errorEl.style.display = "none";
     resultEl.style.display = "none";
 
@@ -1066,60 +1106,151 @@ function initVerify() {
         document.getElementById("verify-result-description").textContent = d.description || "—";
         document.getElementById("verify-result-immutable").textContent =
           d.immutable !== undefined ? (d.immutable ? "Yes" : "No") : "—";
+        const dateEl = document.getElementById("verify-result-date");
+        if (dateEl) {
+          dateEl.textContent = d.created_at ? new Date(d.created_at).toLocaleString() : "—";
+        }
         onChainHash = stateData;
         resultEl.style.display = "block";
+        return stateData;
       } else {
         errorEl.textContent = res.data.message || "Failed to read on-chain data";
         errorEl.style.display = "block";
+        return null;
       }
     } catch (err) {
       errorEl.textContent = "Request failed: " + err.message;
       errorEl.style.display = "block";
+      return null;
+    } finally {
+      setLoading("btn-verify-read", false);
     }
-    setLoading("btn-verify-read", false);
+  }
+
+  readBtn.addEventListener("click", async () => {
+    const matchSection = document.getElementById("verify-match-section");
+    if (matchSection) matchSection.style.display = "none";
+    await readOnChain();
   });
 
-  // File input → populate textarea
+  // --- Hash card elements ---
   const fileInput = document.getElementById("verify-file-input");
+  const docInput = document.getElementById("verify-document-input");
+  const clearBtn = document.getElementById("btn-verify-clear");
+  const emptyWarning = document.getElementById("verify-empty-warning");
+
+  function updateClearButton() {
+    if (clearBtn) {
+      clearBtn.style.display = docInput.value.trim() ? "inline-block" : "none";
+    }
+  }
+
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files[0];
     if (!file) return;
     const text = await file.text();
-    document.getElementById("verify-document-input").value = text;
+    docInput.value = text;
+    computedHashValue = null;
+    if (emptyWarning) emptyWarning.style.display = "none";
+    const computedEl = document.getElementById("verify-computed-hash-display");
+    if (computedEl) computedEl.style.display = "none";
+    updateClearButton();
   });
 
-  // Compute hash & compare
-  const hashBtn = document.getElementById("btn-verify-hash");
-  hashBtn.addEventListener("click", async () => {
-    const data = document.getElementById("verify-document-input").value;
-    if (!data.trim()) return;
+  docInput.addEventListener("input", () => {
+    computedHashValue = null;
+    if (emptyWarning) emptyWarning.style.display = "none";
+    const computedEl = document.getElementById("verify-computed-hash-display");
+    if (computedEl) computedEl.style.display = "none";
+    updateClearButton();
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      docInput.value = "";
+      fileInput.value = "";
+      computedHashValue = null;
+      if (emptyWarning) emptyWarning.style.display = "none";
+      const computedEl = document.getElementById("verify-computed-hash-display");
+      if (computedEl) computedEl.style.display = "none";
+      const matchSection = document.getElementById("verify-match-section");
+      if (matchSection) matchSection.style.display = "none";
+      updateClearButton();
+    });
+  }
+
+  updateClearButton();
+
+  // Shared compute-hash function (used by both Compute Hash button and Verify Match)
+  async function computeDocHash() {
+    const data = docInput.value;
+    if (!data.trim()) {
+      if (emptyWarning) emptyWarning.style.display = "block";
+      return null;
+    }
+    if (emptyWarning) emptyWarning.style.display = "none";
 
     setLoading("btn-verify-hash", true);
     try {
       const res = await api("POST", "/verify/hash", { data });
       if (res.status === 200) {
-        const computed = res.data.hash;
-        document.getElementById("verify-computed-hash").textContent = computed;
-        document.getElementById("verify-onchain-hash").textContent = onChainHash || "(read on-chain data first)";
-
-        const matchEl = document.getElementById("verify-match-result");
-        if (onChainHash && computed === onChainHash) {
-          matchEl.style.color = "rgb(5, 204, 147)";
-          matchEl.textContent = "✓ MATCH — Document hash matches on-chain data.";
-        } else if (onChainHash) {
-          matchEl.style.color = "#a04048";
-          matchEl.textContent = "✗ MISMATCH — Document hash does NOT match on-chain data.";
-        } else {
-          matchEl.style.color = "#6c757d";
-          matchEl.textContent = "Hash computed. Read on-chain data to compare.";
+        computedHashValue = res.data.hash;
+        const computedEl = document.getElementById("verify-computed-hash-display");
+        if (computedEl) {
+          document.getElementById("verify-computed-hash-value").textContent = computedHashValue;
+          computedEl.style.display = "block";
         }
-        document.getElementById("verify-hash-result").style.display = "block";
+        return computedHashValue;
       }
     } catch (err) {
       console.warn("Hash computation failed:", err);
+    } finally {
+      setLoading("btn-verify-hash", false);
     }
-    setLoading("btn-verify-hash", false);
+    return null;
+  }
+
+  // Compute hash button (does NOT compare)
+  const hashBtn = document.getElementById("btn-verify-hash");
+  hashBtn.addEventListener("click", async () => {
+    const matchSection = document.getElementById("verify-match-section");
+    if (matchSection) matchSection.style.display = "none";
+    await computeDocHash();
   });
+
+  // Verify Match button — triggers both cards then compares
+  const verifyMatchBtn = document.getElementById("btn-verify-match");
+  if (verifyMatchBtn) {
+    verifyMatchBtn.addEventListener("click", async () => {
+      setLoading("btn-verify-match", true);
+      const matchSection = document.getElementById("verify-match-section");
+      if (matchSection) matchSection.style.display = "none";
+
+      // Trigger both operations in parallel, each shows its own results/warnings
+      const chainPromise = onChainHash ? Promise.resolve(onChainHash) : readOnChain();
+      const hashPromise = computedHashValue ? Promise.resolve(computedHashValue) : computeDocHash();
+
+      const [chainResult, hashResult] = await Promise.all([chainPromise, hashPromise]);
+
+      // Both must succeed for comparison
+      if (chainResult && hashResult) {
+        document.getElementById("verify-computed-hash").textContent = hashResult;
+        document.getElementById("verify-onchain-hash").textContent = chainResult;
+
+        const matchEl = document.getElementById("verify-match-result");
+        if (hashResult === chainResult) {
+          matchEl.style.color = "rgb(5, 204, 147)";
+          matchEl.textContent = "✓ MATCH — Document hash matches on-chain data.";
+        } else {
+          matchEl.style.color = "#a04048";
+          matchEl.textContent = "✗ MISMATCH — Document hash does NOT match on-chain data.";
+        }
+        if (matchSection) matchSection.style.display = "block";
+      }
+
+      setLoading("btn-verify-match", false);
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

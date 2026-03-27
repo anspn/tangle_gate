@@ -25,8 +25,8 @@ defmodule TangleGate.MixProject do
 
   defp deps do
     [
-      # IOTA NIF library (fetched via git)
-      {:iota_nif, git: "https://github.com/anspn/iota_nif.git", tag: "v0.3.1"},
+      # IOTA NIF library
+      {:iota_nif, git: "https://github.com/anspn/iota_nif.git", tag: "v0.4.0-precompiled"},
 
       # Web server & HTTP
       {:bandit, "~> 1.10"},
