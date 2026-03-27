@@ -13,8 +13,6 @@ config :tangle_gate,
   # Web server
   port: 4000,
   start_web: true,
-  # Frontend mode: :static (SSR EEx templates) or :spa (React SPA from web_tangle_gate)
-  frontend: :spa,
   # Set to true to require login before accessing the app
   login_required: true,
   # ttyd URL for portal terminal (user-facing URL the browser connects to)

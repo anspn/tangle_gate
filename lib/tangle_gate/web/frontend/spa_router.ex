@@ -6,7 +6,6 @@ defmodule TangleGate.Web.Frontend.SPARouter do
   All non-asset routes return `index.html` so React Router handles
   client-side navigation.
 
-  Activated when `config :tangle_gate, frontend: :spa`.
   """
 
   use Plug.Router

@@ -4,17 +4,9 @@ defmodule TangleGate.Web.Router do
 
   Routes:
   - `/api/*`    → REST API (JSON)
-  - `/static/*` → Static assets (CSS, JS, SPA bundle)
-  - `/*`        → Frontend (SSR or SPA, controlled by `config :tangle_gate, frontend:`)
-
-  ## Frontend modes
-
-  - `:static` (default) — server-side rendered EEx templates via `Frontend.Router`
-  - `:spa` — React SPA served from `priv/static/spa/` via `Frontend.SPARouter`
-
-  Set in config:
-
-      config :tangle_gate, frontend: :spa
+  - `/static/*` → Static assets (logo, SPA bundle)
+  - `/assets/*` → Vite-hashed SPA assets (immutable cache)
+  - `/*`        → React SPA via `Frontend.SPARouter`
   """
 
   use Plug.Router
@@ -50,12 +42,6 @@ defmodule TangleGate.Web.Router do
   forward("/api", to: TangleGate.Web.API.Router)
 
   match _ do
-    case Application.get_env(:tangle_gate, :frontend, :static) do
-      :spa ->
-        TangleGate.Web.Frontend.SPARouter.call(conn, TangleGate.Web.Frontend.SPARouter.init([]))
-
-      _ ->
-        TangleGate.Web.Frontend.Router.call(conn, TangleGate.Web.Frontend.Router.init([]))
-    end
+    TangleGate.Web.Frontend.SPARouter.call(conn, TangleGate.Web.Frontend.SPARouter.init([]))
   end
 end

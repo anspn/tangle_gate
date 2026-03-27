@@ -23,8 +23,6 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}"
       # Default: IOTA testnet (override with IOTA_NODE_URL in .env for local node)
       IOTA_NODE_URL: "${IOTA_NODE_URL:-https://api.testnet.iota.cafe}"
-      # Frontend mode: static (SSR) or spa (React)
-      FRONTEND_MODE: "${FRONTEND_MODE:-spa}"
       # MongoDB connection (internal Docker network)
       MONGO_URL: "mongodb://${MONGO_USERNAME:-iota}:${MONGO_PASSWORD}@mongo:27017/tangle_gate?authSource=admin"
       # Vault connection (internal Docker network)
