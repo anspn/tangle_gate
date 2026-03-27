@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { LoadingButton } from '@/components/shared/LoadingButton';
@@ -7,18 +7,6 @@ import { DIDDisplay } from '@/components/shared/DataDisplay';
 import { sessionApi } from '@/lib/api';
 import type { CreateVPForSessionResponse } from '@/types';
 
-/** Decode a JWT payload (middle segment) without verification. */
-function decodeJwtPayload(jwt: string): Record<string, any> | null {
-  try {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) return null;
-    const payload = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
-    return JSON.parse(payload);
-  } catch {
-    return null;
-  }
-}
-
 type Phase = 'idle' | 'active_session';
 
 export default function PortalPage() {
@@ -26,69 +14,53 @@ export default function PortalPage() {
   const [sessionId, setSessionId] = useState('');
   const [holderDid, setHolderDid] = useState('');
 
-  // VP JWT shown in the top card (editable or auto-filled)
-  const [vpJwt, setVpJwt] = useState('');
-  // Internal metadata from createVP (not shown to user)
-  const [vpMeta, setVpMeta] = useState<{ challenge: string; holder_did: string } | null>(null);
+  const sessionIdRef = useRef('');
 
-  const [startLoading, setStartLoading] = useState(false);
-  const [startError, setStartError] = useState('');
+  // Keep ref in sync for use in beforeunload
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
+  // On mount: if a stored session exists, end it and reset to idle
   useEffect(() => {
-    const storedDid = sessionStorage.getItem('iota_portal_did');
     const storedSession = sessionStorage.getItem('iota_portal_session');
-    if (storedDid && storedSession) {
-      setHolderDid(storedDid);
-      setSessionId(storedSession);
-      setPhase('active_session');
+    if (storedSession) {
+      // End the orphaned session (page was reloaded)
+      sessionApi.end(storedSession).catch(() => {});
+      sessionStorage.removeItem('iota_portal_did');
+      sessionStorage.removeItem('iota_portal_session');
     }
   }, []);
 
-  const handleVPCreated = (data: CreateVPForSessionResponse) => {
-    setVpJwt(data.presentation_jwt);
-    setVpMeta({ challenge: data.challenge, holder_did: data.holder_did });
-    setStartError('');
-  };
+  // End session on page unload (reload, tab close, navigation)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const sid = sessionIdRef.current;
+      if (!sid) return;
+      const token = sessionStorage.getItem('iota_token');
+      const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+      // sendBeacon doesn't support custom headers, so use fetch with keepalive
+      fetch(`/api/sessions/${sid}/end`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token ?? ''}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+        keepalive: true,
+      }).catch(() => {});
+      sessionStorage.removeItem('iota_portal_did');
+      sessionStorage.removeItem('iota_portal_session');
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
-  const handleStartSession = async () => {
-    setStartError('');
-    const jwt = vpJwt.trim();
-    if (!jwt.startsWith('eyJ')) { setStartError('Invalid VP JWT format'); return; }
-
-    // Resolve challenge + holder_did: prefer metadata from createVP, fall back to JWT decode
-    let challenge: string;
-    let holder_did: string;
-
-    if (vpMeta && vpMeta.challenge && vpMeta.holder_did) {
-      challenge = vpMeta.challenge;
-      holder_did = vpMeta.holder_did;
-    } else {
-      const payload = decodeJwtPayload(jwt);
-      if (!payload) { setStartError('Could not decode VP JWT payload'); return; }
-      holder_did = payload.iss || '';
-      challenge = payload.nonce || payload.vp?.nonce || '';
-      if (!holder_did) { setStartError('VP JWT missing issuer (holder DID)'); return; }
-      if (!challenge) { setStartError('VP JWT missing nonce (challenge)'); return; }
-    }
-
-    setStartLoading(true);
-    try {
-      const res = await sessionApi.start({ presentation_jwt: jwt, challenge, holder_did });
-      if (res.ok) {
-        setSessionId(res.data.session_id);
-        setHolderDid(holder_did);
-        sessionStorage.setItem('iota_portal_did', holder_did);
-        sessionStorage.setItem('iota_portal_session', res.data.session_id);
-        setPhase('active_session');
-      } else {
-        setStartError((res.data as any).message || 'Failed to start session');
-      }
-    } catch {
-      setStartError('Connection failed');
-    } finally {
-      setStartLoading(false);
-    }
-  };
+  const handleSessionStarted = useCallback((sid: string, did: string) => {
+    setSessionId(sid);
+    setHolderDid(did);
+    sessionStorage.setItem('iota_portal_did', did);
+    sessionStorage.setItem('iota_portal_session', sid);
+    setPhase('active_session');
+  }, []);
 
   const handleDisconnect = async () => {
     const iframe = document.getElementById('terminal-iframe') as HTMLIFrameElement;
@@ -98,61 +70,20 @@ export default function PortalPage() {
     sessionStorage.removeItem('iota_portal_did');
     sessionStorage.removeItem('iota_portal_session');
     setPhase('idle');
-    setVpJwt('');
-    setVpMeta(null);
     setSessionId('');
     setHolderDid('');
-    setStartError('');
   };
-
-  const vpReady = vpJwt.trim().startsWith('eyJ');
 
   return (
     <div className="space-y-8">
-      <PageHeader title="Terminal Portal" subtitle="Create a VP and start a secure terminal session" />
-
-      {phase === 'idle' && (
-        <>
-          {/* Top: VP JWT + Start Session */}
-          <div className="rounded-lg border border-border bg-card p-6 shadow-tg-sm">
-            <h3 className="text-base font-semibold mb-5 text-foreground">Verifiable Presentation</h3>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>VP JWT</Label>
-                <Textarea
-                  value={vpJwt}
-                  onChange={(e) => { setVpJwt(e.target.value); setVpMeta(null); setStartError(''); }}
-                  rows={5}
-                  placeholder="eyJ..."
-                />
-                <p className="text-sm text-tg-text-muted">
-                  {vpMeta ? 'VP created — ready to start session' : 'Paste an existing VP JWT or create one below'}
-                </p>
-              </div>
-              {startError && <InlineNotice type="error" message={startError} />}
-              <LoadingButton onClick={handleStartSession} loading={startLoading} disabled={!vpReady}>
-                Start Session
-              </LoadingButton>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
-            <div className="relative flex justify-center"><span className="bg-background px-4 text-sm text-tg-text-muted">or create one</span></div>
-          </div>
-
-          {/* Bottom: Create VP form */}
-          <VPCreationCard onCreated={handleVPCreated} />
-        </>
-      )}
-
+      <PageHeader title="Terminal Portal" subtitle="Present your Verifiable Credential to start a secure terminal session" />
+      {phase === 'idle' && <VPCreationCard onSessionStarted={handleSessionStarted} />}
       {phase === 'active_session' && <TerminalCard did={holderDid} onDisconnect={handleDisconnect} />}
     </div>
   );
 }
 
-function VPCreationCard({ onCreated }: { onCreated: (data: CreateVPForSessionResponse) => void }) {
+function VPCreationCard({ onSessionStarted }: { onSessionStarted: (sessionId: string, did: string) => void }) {
   const [credentialJwt, setCredentialJwt] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [loading, setLoading] = useState(false);
@@ -166,12 +97,22 @@ function VPCreationCard({ onCreated }: { onCreated: (data: CreateVPForSessionRes
 
     setLoading(true);
     try {
-      const res = await sessionApi.createVP({ credential_jwt: credentialJwt, private_key_jwk: privateKey });
-      if (res.ok) onCreated(res.data);
-      else {
-        if (res.status === 422) setError('No DID assigned to your account. Contact admin.');
-        else if (res.status === 403) setError('Not authorized for terminal access. Contact admin.');
-        else setError((res.data as any).message || 'Failed to create VP');
+      // Step 1: Create VP
+      const vpRes = await sessionApi.createVP({ credential_jwt: credentialJwt, private_key_jwk: privateKey });
+      if (!vpRes.ok) {
+        if (vpRes.status === 422) setError('No DID assigned to your account. Contact admin.');
+        else if (vpRes.status === 403) setError('Not authorized for terminal access. Contact admin.');
+        else setError((vpRes.data as any).message || 'Failed to create VP');
+        return;
+      }
+
+      // Step 2: Start session with VP
+      const { presentation_jwt, challenge, holder_did } = vpRes.data;
+      const sessionRes = await sessionApi.start({ presentation_jwt, challenge, holder_did });
+      if (sessionRes.ok) {
+        onSessionStarted(sessionRes.data.session_id, holder_did);
+      } else {
+        setError((sessionRes.data as any).message || 'Failed to start session');
       }
     } catch {
       setError('Connection failed');
@@ -182,7 +123,7 @@ function VPCreationCard({ onCreated }: { onCreated: (data: CreateVPForSessionRes
 
   return (
     <div className="rounded-lg border border-border bg-card p-6 shadow-tg-sm">
-      <h3 className="text-base font-semibold mb-5 text-foreground">Create Verifiable Presentation</h3>
+      <h3 className="text-base font-semibold mb-5 text-foreground">Start Terminal Session</h3>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -197,7 +138,7 @@ function VPCreationCard({ onCreated }: { onCreated: (data: CreateVPForSessionRes
           </div>
         </div>
         {error && <InlineNotice type="error" message={error} />}
-        <LoadingButton type="submit" loading={loading}>Create VP</LoadingButton>
+        <LoadingButton type="submit" loading={loading}>Start Session</LoadingButton>
       </form>
     </div>
   );

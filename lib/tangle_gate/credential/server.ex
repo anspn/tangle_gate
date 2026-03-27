@@ -105,10 +105,18 @@ defmodule TangleGate.Credential.Server do
   """
   @spec create_credential(String.t(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def create_credential(issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment) do
+  def create_credential(
+        issuer_doc_json,
+        holder_did,
+        credential_type,
+        claims_json,
+        private_key_jwk,
+        fragment
+      ) do
     GenServer.call(
       __MODULE__,
-      {:create_credential, issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment},
+      {:create_credential, issuer_doc_json, holder_did, credential_type, claims_json,
+       private_key_jwk, fragment},
       60_000
     )
   end
@@ -154,7 +162,14 @@ defmodule TangleGate.Credential.Server do
   - `presentation_jwt` — The signed VP as a compact JWT
   - `holder_did` — The holder's DID
   """
-  @spec create_presentation(String.t(), String.t(), String.t(), non_neg_integer(), String.t(), String.t()) ::
+  @spec create_presentation(
+          String.t(),
+          String.t(),
+          String.t(),
+          non_neg_integer(),
+          String.t(),
+          String.t()
+        ) ::
           {:ok, map()} | {:error, term()}
   def create_presentation(
         holder_doc_json,
@@ -166,8 +181,8 @@ defmodule TangleGate.Credential.Server do
       ) do
     GenServer.call(
       __MODULE__,
-      {:create_presentation, holder_doc_json, credential_jwts_json, challenge,
-       expires_in_seconds, private_key_jwk, fragment},
+      {:create_presentation, holder_doc_json, credential_jwts_json, challenge, expires_in_seconds,
+       private_key_jwk, fragment},
       60_000
     )
   end
@@ -243,6 +258,7 @@ defmodule TangleGate.Credential.Server do
           "Server DID auto-provisioning failed: #{inspect(reason)} — " <>
             "provision manually via POST /api/credentials/provision"
         )
+
         {:noreply, state}
     end
   end
@@ -277,7 +293,11 @@ defmodule TangleGate.Credential.Server do
       nil ->
         {:reply, {:error, :no_server_did}, state}
 
-      %{document: issuer_doc_json, private_key_jwk: private_key_jwk, verification_method_fragment: fragment} ->
+      %{
+        document: issuer_doc_json,
+        private_key_jwk: private_key_jwk,
+        verification_method_fragment: fragment
+      } ->
         start_time = System.monotonic_time()
         claims_json = Jason.encode!(claims)
 
@@ -323,7 +343,8 @@ defmodule TangleGate.Credential.Server do
 
   @impl true
   def handle_call(
-        {:create_credential, issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment},
+        {:create_credential, issuer_doc_json, holder_did, credential_type, claims_json,
+         private_key_jwk, fragment},
         _from,
         state
       ) do

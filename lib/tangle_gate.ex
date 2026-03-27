@@ -210,8 +210,15 @@ defmodule TangleGate do
   """
   @spec create_credential(String.t(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  defdelegate create_credential(issuer_doc_json, holder_did, credential_type, claims_json, private_key_jwk, fragment),
-    to: Credential.Server
+  defdelegate create_credential(
+                issuer_doc_json,
+                holder_did,
+                credential_type,
+                claims_json,
+                private_key_jwk,
+                fragment
+              ),
+              to: Credential.Server
 
   @doc """
   Verify a Verifiable Credential JWT.
@@ -244,7 +251,14 @@ defmodule TangleGate do
   - `private_key_jwk` — The holder's private key JWK (JSON string)
   - `fragment` — The holder's verification method fragment
   """
-  @spec create_presentation(String.t(), String.t(), String.t(), non_neg_integer(), String.t(), String.t()) ::
+  @spec create_presentation(
+          String.t(),
+          String.t(),
+          String.t(),
+          non_neg_integer(),
+          String.t(),
+          String.t()
+        ) ::
           {:ok, map()} | {:error, term()}
   defdelegate create_presentation(
                 holder_doc_json,
@@ -440,6 +454,22 @@ defmodule TangleGate do
   """
   @spec session_stats() :: map()
   defdelegate session_stats(), to: Session.Manager, as: :stats
+
+  @doc """
+  Terminate an active TTY session (admin action).
+
+  Signals the shell to exit and ends the session with notarization.
+  """
+  @spec terminate_session(String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate terminate_session(session_id), to: Session.Manager
+
+  @doc """
+  Retry on-chain notarization for a failed session.
+
+  Uses the locally stored document hash to re-attempt publishing.
+  """
+  @spec retry_notarization(String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate retry_notarization(session_id), to: Session.Manager
 
   # ============================================================================
   # Health & Status

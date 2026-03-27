@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { RefreshCw, Download } from 'lucide-react';
+import { RefreshCw, Download, Square, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -45,11 +45,44 @@ function SessionStatsSection() {
 
 function SessionTable() {
   const queryClient = useQueryClient();
+  const role = useAuthStore((s) => s.role);
   const { data, isLoading } = useQuery({
     queryKey: ['sessions'],
     queryFn: () => sessionApi.list(),
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const terminateMutation = useMutation({
+    mutationFn: (id: string) => sessionApi.terminate(id),
+    onSuccess: (res) => {
+      if (res.ok) {
+        toast.success(res.data.message || 'Session terminated');
+        queryClient.invalidateQueries({ queryKey: ['sessions'] });
+        queryClient.invalidateQueries({ queryKey: ['sessionStats'] });
+      } else {
+        toast.error((res as { error?: string }).error || 'Failed to terminate session');
+      }
+    },
+    onError: () => toast.error('Failed to terminate session'),
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: (id: string) => sessionApi.retryNotarization(id),
+    onSuccess: (res) => {
+      if (res.ok) {
+        toast.success(res.data.message || 'Notarization succeeded');
+        queryClient.invalidateQueries({ queryKey: ['sessions'] });
+        queryClient.invalidateQueries({ queryKey: ['sessionStats'] });
+      } else {
+        toast.error((res as { error?: string }).error || 'Notarization failed');
+      }
+    },
+    onError: () => toast.error('Notarization retry failed'),
+  });
+
+  const handleTerminate = (id: string) => {
+    terminateMutation.mutate(id);
+  };
 
   return (
     <div className="rounded-lg border border-border bg-card shadow-tg-sm">
@@ -89,7 +122,29 @@ function SessionTable() {
                   <td className="px-5 py-3 font-mono text-xs text-tg-text-muted">
                     {s.notarization_hash ? `${s.notarization_hash.slice(0, 12)}...` : '—'}
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-5 py-3 space-x-1">
+                    {role === 'admin' && s.status === 'active' && (
+                      <LoadingButton
+                        variant="outline"
+                        size="sm"
+                        className="text-tg-danger border-tg-danger hover:bg-tg-danger/10"
+                        loading={terminateMutation.isPending && terminateMutation.variables === s.session_id}
+                        onClick={() => handleTerminate(s.session_id)}
+                      >
+                        <Square className="mr-1 h-3 w-3" /> Terminate
+                      </LoadingButton>
+                    )}
+                    {role === 'admin' && s.status === 'failed' && (
+                      <LoadingButton
+                        variant="outline"
+                        size="sm"
+                        className="text-tg-info border-tg-info hover:bg-tg-info/10"
+                        loading={retryMutation.isPending && retryMutation.variables === s.session_id}
+                        onClick={() => retryMutation.mutate(s.session_id)}
+                      >
+                        <RotateCcw className="mr-1 h-3 w-3" /> Notarize
+                      </LoadingButton>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => setSelectedId(s.session_id)}>View</Button>
                   </td>
                 </tr>

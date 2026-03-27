@@ -92,7 +92,8 @@ defmodule TangleGate.Web.API.VerifyHandler do
       {:error, reason} ->
         message =
           if is_binary(reason) and String.contains?(reason, "not found"),
-            do: "No document on chain matches the object ID you searched, please check if the input is correct",
+            do:
+              "No document on chain matches the object ID you searched, please check if the input is correct",
             else: "Failed to read on-chain notarization: #{inspect(reason)}"
 
         Helpers.json(conn, 422, %{

@@ -10,12 +10,14 @@ defmodule TangleGate.Web.API.SessionHandler do
 
   ## Endpoints
 
-  - `POST   /api/sessions`              — Start a new recording session (VP required)
-  - `POST   /api/sessions/create-vp`    — Create a VP for portal session start (credential + private key)
-  - `POST   /api/sessions/:id/end`      — End a session (triggers notarization)
-  - `GET    /api/sessions`              — List sessions (admin: all, user: own)
-  - `GET    /api/sessions/:id`          — Get session details
-  - `GET    /api/sessions/:id/download` — Download session history as JSON file
+  - `POST   /api/sessions`                        — Start a new recording session (VP required)
+  - `POST   /api/sessions/create-vp`              — Create a VP for portal session start (credential + private key)
+  - `POST   /api/sessions/:id/end`                — End a session (triggers notarization)
+  - `POST   /api/sessions/:id/terminate`           — Admin: terminate active session (kick user + notarize)
+  - `POST   /api/sessions/:id/retry-notarization`  — Admin: retry failed on-chain notarization
+  - `GET    /api/sessions`                         — List sessions (admin: all, user: own)
+  - `GET    /api/sessions/:id`                     — Get session details
+  - `GET    /api/sessions/:id/download`            — Download session history as JSON file
   """
 
   use Plug.Router
@@ -183,6 +185,100 @@ defmodule TangleGate.Web.API.SessionHandler do
   end
 
   # ---------------------------------------------------------------------------
+  # POST /api/sessions/:id/terminate — Admin terminates an active session
+  # ---------------------------------------------------------------------------
+  post "/:session_id/terminate" do
+    user = conn.assigns[:current_user]
+
+    unless user.role == "admin" do
+      Helpers.json(conn, 403, %{
+        error: "forbidden",
+        message: "Only admins can terminate sessions"
+      })
+    else
+      case Manager.terminate_session(session_id) do
+        {:ok, session} ->
+          Helpers.json(conn, 200, %{
+            session: serialize_session(session),
+            message:
+              "Session terminated and notarization #{if session.status == :notarized, do: "succeeded", else: "attempted"}"
+          })
+
+        {:error, :not_found} ->
+          Helpers.json(conn, 404, %{
+            error: "not_found",
+            message: "Session not found: #{session_id}"
+          })
+
+        {:error, :not_active} ->
+          Helpers.json(conn, 409, %{
+            error: "not_active",
+            message: "Session is not active — cannot terminate"
+          })
+
+        {:error, reason} ->
+          Helpers.json(conn, 500, %{
+            error: "terminate_failed",
+            message: "Failed to terminate session: #{inspect(reason)}"
+          })
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/sessions/:id/retry-notarization — Retry failed notarization
+  # ---------------------------------------------------------------------------
+  post "/:session_id/retry-notarization" do
+    user = conn.assigns[:current_user]
+
+    unless user.role == "admin" do
+      Helpers.json(conn, 403, %{
+        error: "forbidden",
+        message: "Only admins can retry notarization"
+      })
+    else
+      case Manager.retry_notarization(session_id) do
+        {:ok, session} ->
+          Helpers.json(conn, 200, %{
+            session: serialize_session(session),
+            message: "Notarization succeeded — session is now on-chain"
+          })
+
+        {:error, :not_found} ->
+          Helpers.json(conn, 404, %{
+            error: "not_found",
+            message: "Session not found: #{session_id}"
+          })
+
+        {:error, {:invalid_status, status}} ->
+          Helpers.json(conn, 409, %{
+            error: "invalid_status",
+            message:
+              "Cannot retry notarization for session in '#{status}' status — only 'failed' sessions can be retried"
+          })
+
+        {:error, :no_hash} ->
+          Helpers.json(conn, 422, %{
+            error: "no_hash",
+            message: "Session has no notarization hash — cannot retry"
+          })
+
+        {:error, :no_secret_key} ->
+          Helpers.json(conn, 422, %{
+            error: "no_secret_key",
+            message: "No IOTA secret key configured — cannot publish on-chain"
+          })
+
+        {:error, reason} ->
+          Helpers.json(conn, 500, %{
+            error: "notarization_failed",
+            message: "Notarization retry failed: #{inspect(reason)}"
+          })
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # GET /api/sessions — List sessions
   # ---------------------------------------------------------------------------
   get "/" do
@@ -331,7 +427,8 @@ defmodule TangleGate.Web.API.SessionHandler do
           is_nil(db_user.verification_method_fragment) ->
             Helpers.json(conn, 422, %{
               error: "missing_fragment",
-              message: "Verification method fragment not stored. Ask an admin to re-assign your DID."
+              message:
+                "Verification method fragment not stored. Ask an admin to re-assign your DID."
             })
 
           db_user.authorized != true ->

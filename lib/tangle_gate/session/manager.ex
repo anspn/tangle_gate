@@ -118,6 +118,40 @@ defmodule TangleGate.Session.Manager do
   end
 
   @doc """
+  Terminate an active session (admin action).
+
+  Writes a terminate marker file so the ttyd shell exits at the next prompt,
+  then ends the session (reads history, hashes, notarizes on-chain).
+
+  ## Parameters
+  - `session_id` — The active session to terminate
+
+  ## Returns
+  `{:ok, session}` with notarization details.
+  """
+  @spec terminate_session(String.t()) :: {:ok, map()} | {:error, term()}
+  def terminate_session(session_id) when is_binary(session_id) do
+    GenServer.call(__MODULE__, {:terminate_session, session_id}, 120_000)
+  end
+
+  @doc """
+  Retry on-chain notarization for a failed session.
+
+  Uses the locally stored session document and hash to re-attempt
+  publishing the notarization on the IOTA ledger.
+
+  ## Parameters
+  - `session_id` — The failed session to retry
+
+  ## Returns
+  `{:ok, session}` on success, `{:error, reason}` on failure.
+  """
+  @spec retry_notarization(String.t()) :: {:ok, map()} | {:error, term()}
+  def retry_notarization(session_id) when is_binary(session_id) do
+    GenServer.call(__MODULE__, {:retry_notarization, session_id}, 120_000)
+  end
+
+  @doc """
   Get aggregate statistics about sessions.
   """
   @spec stats() :: map()
@@ -231,6 +265,44 @@ defmodule TangleGate.Session.Manager do
       [{^session_id, session}] ->
         # Session already ended — return current state
         {:reply, {:ok, session}, state}
+
+      [] ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:terminate_session, session_id}, _from, state) do
+    case :ets.lookup(@table, session_id) do
+      [{^session_id, session}] when session.status == :active ->
+        # Write terminate marker so the shell exits
+        write_terminate_marker(session_id)
+
+        # Wait for the watchdog (1s poll) to detect the file, kill bash,
+        # let the EXIT trap flush, and filesystem sync across the volume
+        Process.sleep(3_000)
+
+        # End the session normally (read history, hash, notarize)
+        {result, new_state} = do_end_session(session, state)
+        {:reply, result, new_state}
+
+      [{^session_id, _session}] ->
+        {:reply, {:error, :not_active}, state}
+
+      [] ->
+        {:reply, {:error, :not_found}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:retry_notarization, session_id}, _from, state) do
+    case :ets.lookup(@table, session_id) do
+      [{^session_id, session}] when session.status == :failed ->
+        {result, new_state} = do_retry_notarization(session, state)
+        {:reply, result, new_state}
+
+      [{^session_id, %{status: status}}] ->
+        {:reply, {:error, {:invalid_status, status}}, state}
 
       [] ->
         {:reply, {:error, :not_found}, state}
@@ -551,6 +623,53 @@ defmodule TangleGate.Session.Manager do
   # Private — On-chain Notarization
   # ============================================================================
 
+  defp do_retry_notarization(session, state) do
+    hash = session.notarization_hash
+
+    if is_nil(hash) or hash == "" do
+      {{:error, :no_hash}, state}
+    else
+      case maybe_publish_on_chain(hash, session) do
+        {:ok, %{"object_id" => oid}} ->
+          finish_retry(session, oid, state)
+
+        {:ok, result} when is_map(result) ->
+          oid = Map.get(result, "object_id") || Map.get(result, "objectId")
+          finish_retry(session, oid, state)
+
+        :skip ->
+          {{:error, :no_secret_key}, state}
+
+        {:error, reason} ->
+          Logger.warning(
+            "Retry notarization failed for session #{session.session_id}: #{inspect(reason)}"
+          )
+
+          updated = %{session | error: inspect(reason)}
+          :ets.insert(@table, {session.session_id, updated})
+          persist_async({:upsert_session, updated})
+
+          {{:error, reason}, state}
+      end
+    end
+  end
+
+  defp finish_retry(session, on_chain_id, state) do
+    updated = %{session | status: :notarized, on_chain_id: on_chain_id, error: nil}
+    :ets.insert(@table, {session.session_id, updated})
+    persist_async({:upsert_session, updated})
+
+    emit_telemetry(:retry_notarization, %{
+      session_id: session.session_id,
+      on_chain_id: on_chain_id
+    })
+
+    Logger.info("Retry notarization succeeded for session #{session.session_id}: #{on_chain_id}")
+
+    new_state = %{state | sessions_notarized: state.sessions_notarized + 1}
+    {{:ok, updated}, new_state}
+  end
+
   defp maybe_publish_on_chain(hash, session) do
     secret_key = Application.get_env(:tangle_gate, :secret_key)
 
@@ -590,6 +709,19 @@ defmodule TangleGate.Session.Manager do
 
       {:error, reason} ->
         Logger.warning("Failed to write pending session file: #{inspect(reason)}")
+    end
+  end
+
+  defp write_terminate_marker(session_id) do
+    session_dir = Path.join(sessions_dir(), session_id)
+    terminate_path = Path.join(session_dir, "terminate")
+
+    case File.write(terminate_path, "terminated\n") do
+      :ok ->
+        Logger.info("Wrote terminate marker for session #{session_id}")
+
+      {:error, reason} ->
+        Logger.warning("Failed to write terminate marker: #{inspect(reason)}")
     end
   end
 

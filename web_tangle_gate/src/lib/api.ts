@@ -73,6 +73,8 @@ export const sessionApi = {
   createVP: (req: CreateVPForSessionRequest) => api<CreateVPForSessionResponse>('POST', '/sessions/create-vp', req),
   start: (req: StartSessionRequest) => api<Session>('POST', '/sessions', req),
   end: (id: string) => api<Session>('POST', `/sessions/${id}/end`),
+  terminate: (id: string) => api<{ session: Session; message: string }>('POST', `/sessions/${id}/terminate`),
+  retryNotarization: (id: string) => api<{ session: Session; message: string }>('POST', `/sessions/${id}/retry-notarization`),
   list: (params?: Record<string, string>) => {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return api<{ sessions: Session[]; count: number }>('GET', `/sessions${qs}`);

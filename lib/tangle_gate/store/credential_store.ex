@@ -262,10 +262,12 @@ defmodule TangleGate.Store.CredentialStore do
     Repo.pool()
     |> Mongo.aggregate(@credentials_collection, [
       %{"$match" => %{"issued_at" => %{"$gte" => cutoff}}},
-      %{"$group" => %{
-        "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$issued_at"}},
-        "count" => %{"$sum" => 1}
-      }},
+      %{
+        "$group" => %{
+          "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$issued_at"}},
+          "count" => %{"$sum" => 1}
+        }
+      },
       %{"$sort" => %{"_id" => 1}}
     ])
     |> Enum.map(fn %{"_id" => date, "count" => count} ->

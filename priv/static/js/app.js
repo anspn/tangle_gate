@@ -667,15 +667,10 @@ function initPortal() {
 
   // Element references
   const createVpCard = document.getElementById("create-vp-card");
-  const startSessionCard = document.getElementById("start-session-card");
   const terminalCard = document.getElementById("terminal-card");
   const terminalIframe = document.getElementById("terminal-iframe");
   const terminalBadge = document.getElementById("terminal-did-badge");
   const disconnectBtn = document.getElementById("btn-disconnect-terminal");
-  const sessionForm = document.getElementById("start-session-form");
-
-  // VP creation state (needed for session start)
-  let pendingVp = null; // { presentation_jwt, challenge, holder_did }
 
   /**
    * End a recording session via the API (triggers notarization).
@@ -700,7 +695,6 @@ function initPortal() {
     terminalIframe.src = ttydUrl;
     terminalBadge.textContent = did;
     createVpCard.style.display = "none";
-    startSessionCard.style.display = "none";
     terminalCard.style.display = "block";
     sessionStorage.setItem("iota_portal_did", did);
   }
@@ -709,8 +703,6 @@ function initPortal() {
     terminalIframe.src = "about:blank";
     terminalCard.style.display = "none";
     createVpCard.style.display = "block";
-    startSessionCard.style.display = "none";
-    pendingVp = null;
 
     const sessionId = sessionStorage.getItem("iota_session_id");
     if (sessionId) {
@@ -726,20 +718,36 @@ function initPortal() {
     disconnectBtn.addEventListener("click", hideTerminal);
   }
 
-  // Restore terminal if already active
-  const savedDid = sessionStorage.getItem("iota_portal_did");
-  if (savedDid) {
-    showTerminal(savedDid);
+  // On page load: if an orphaned session exists, end it and stay on idle
+  const savedSession = sessionStorage.getItem("iota_session_id");
+  if (savedSession) {
+    endRecordingSession(savedSession);
+    sessionStorage.removeItem("iota_portal_did");
   }
 
-  // Step 1: Create VP
+  // End session on page unload (reload, tab close, navigation)
+  window.addEventListener("beforeunload", () => {
+    const sid = sessionStorage.getItem("iota_session_id");
+    if (!sid) return;
+    const token = getToken();
+    fetch(`/api/sessions/${sid}/end`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+      keepalive: true,
+    }).catch(() => {});
+    sessionStorage.removeItem("iota_session_id");
+    sessionStorage.removeItem("iota_portal_did");
+  });
+
+  // Single-step: Create VP and start session
   vpForm.addEventListener("submit", async () => {
     setLoading("btn-create-vp", true);
     const statusEl = document.getElementById("create-vp-status");
-    const resultEl = document.getElementById("create-vp-result");
     if (statusEl) statusEl.style.display = "none";
-    if (resultEl) resultEl.style.display = "none";
-    startSessionCard.style.display = "none";
 
     const credentialJwt = document.getElementById("credential-jwt-input").value.trim();
     const privateKeyJwk = document.getElementById("private-key-input").value.trim();
@@ -751,62 +759,33 @@ function initPortal() {
     }
 
     try {
-      const res = await api("POST", "/sessions/create-vp", {
+      // Step 1: Create VP
+      const vpRes = await api("POST", "/sessions/create-vp", {
         credential_jwt: credentialJwt,
         private_key_jwk: privateKeyJwk,
       });
-      if (res.status === 201 && res.data.presentation_jwt) {
-        pendingVp = {
-          presentation_jwt: res.data.presentation_jwt,
-          challenge: res.data.challenge,
-          holder_did: res.data.holder_did,
-        };
-        showNotice("create-vp-status", "VP created successfully. Proceed to Step 2.", "success");
-        show("create-vp-result", {
-          holder_did: res.data.holder_did,
-          presentation_jwt: res.data.presentation_jwt,
-        }, false);
+      if (vpRes.status !== 201 || !vpRes.data.presentation_jwt) {
+        showNotice("create-vp-status", vpRes.data.message || "Failed to create VP", "error");
+        setLoading("btn-create-vp", false);
+        return;
+      }
 
-        // Show Step 2 and auto-fill the VP
-        document.getElementById("vp-jwt-input").value = res.data.presentation_jwt;
-        startSessionCard.style.display = "block";
+      // Step 2: Start session with VP
+      const sessionRes = await api("POST", "/sessions", {
+        presentation_jwt: vpRes.data.presentation_jwt,
+        challenge: vpRes.data.challenge,
+        holder_did: vpRes.data.holder_did,
+      });
+      if (sessionRes.status === 201 && sessionRes.data.session_id) {
+        sessionStorage.setItem("iota_session_id", sessionRes.data.session_id);
+        showTerminal(sessionRes.data.did);
       } else {
-        showNotice("create-vp-status", res.data.message || "Failed to create VP", "error");
+        showNotice("create-vp-status", sessionRes.data.message || "Failed to start session", "error");
       }
     } catch (err) {
       showNotice("create-vp-status", `Error: ${err.message}`, "error");
     } finally {
       setLoading("btn-create-vp", false);
-    }
-  });
-
-  // Step 2: Start session with VP
-  sessionForm.addEventListener("submit", async () => {
-    if (!pendingVp) {
-      showNotice("start-session-status", "Create a VP first (Step 1).", "error");
-      return;
-    }
-
-    setLoading("btn-start-session", true);
-    const statusEl = document.getElementById("start-session-status");
-    if (statusEl) statusEl.style.display = "none";
-
-    try {
-      const res = await api("POST", "/sessions", {
-        presentation_jwt: pendingVp.presentation_jwt,
-        challenge: pendingVp.challenge,
-        holder_did: pendingVp.holder_did,
-      });
-      if (res.status === 201 && res.data.session_id) {
-        sessionStorage.setItem("iota_session_id", res.data.session_id);
-        showTerminal(res.data.did);
-      } else {
-        showNotice("start-session-status", res.data.message || "Failed to start session", "error");
-      }
-    } catch (err) {
-      showNotice("start-session-status", `Error: ${err.message}`, "error");
-    } finally {
-      setLoading("btn-start-session", false);
     }
   });
 }
@@ -898,6 +877,7 @@ async function loadSessionList() {
 
       for (const s of sessions) {
         const tr = document.createElement("tr");
+        const actionBtn = getSessionActionButton(s);
         tr.innerHTML = `
           <td><code>${s.session_id.substring(0, 16)}…</code></td>
           <td><code title="${s.did}">${truncateDid(s.did)}</code></td>
@@ -907,6 +887,7 @@ async function loadSessionList() {
           <td>${s.notarization_hash
             ? `<code title="${s.notarization_hash}">${s.notarization_hash.substring(0, 12)}…</code>`
             : "—"}</td>
+          <td>${actionBtn}</td>
           <td><button class="outline secondary btn-view-session" data-id="${s.session_id}" style="width:auto;padding:4px 12px;">View</button></td>
         `;
         tbody.appendChild(tr);
@@ -915,6 +896,22 @@ async function loadSessionList() {
       // Bind view buttons
       document.querySelectorAll(".btn-view-session").forEach((btn) => {
         btn.addEventListener("click", () => viewSessionDetail(btn.dataset.id));
+      });
+
+      // Bind terminate buttons (admin only)
+      document.querySelectorAll(".btn-terminate-session").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          terminateSession(btn.dataset.id);
+        });
+      });
+
+      // Bind retry notarization buttons (admin only)
+      document.querySelectorAll(".btn-retry-notarization").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          retryNotarization(btn.dataset.id);
+        });
       });
     }
   } catch (err) {
@@ -1009,6 +1006,84 @@ async function downloadSessionHistory(sessionId) {
   } catch (err) {
     console.warn("Failed to download session history:", err);
   }
+}
+
+// --- Session action buttons ---
+
+function getSessionActionButton(session) {
+  const role = getRole();
+  if (role !== "admin") return "";
+
+  if (session.status === "active") {
+    return `<button class="outline btn-terminate-session" data-id="${session.session_id}" style="width:auto;padding:4px 12px;color:#a04048;border-color:#a04048;">Terminate</button>`;
+  }
+  if (session.status === "failed") {
+    return `<button class="outline btn-retry-notarization" data-id="${session.session_id}" style="width:auto;padding:4px 12px;color:#17a2b8;border-color:#17a2b8;">Notarize</button>`;
+  }
+  return "";
+}
+
+async function terminateSession(sessionId) {
+  try {
+    const res = await api("POST", `/sessions/${sessionId}/terminate`);
+    if (res.status === 200) {
+      showSessionNotice("Session terminated successfully." + (res.data.session?.on_chain_id ? " Notarized on-chain." : ""), "success");
+      loadSessionList();
+      const role = getRole();
+      if (role === "admin" || !isLoginRequired()) loadSessionStats();
+    } else {
+      showSessionNotice("Failed to terminate session: " + (res.data?.message || "Unknown error"), "error");
+    }
+  } catch (err) {
+    console.warn("Failed to terminate session:", err);
+    showSessionNotice("Failed to terminate session.", "error");
+  }
+}
+
+async function retryNotarization(sessionId) {
+  try {
+    const btn = document.querySelector(`.btn-retry-notarization[data-id="${sessionId}"]`);
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Notarizing…";
+    }
+    const res = await api("POST", `/sessions/${sessionId}/retry-notarization`);
+    if (res.status === 200) {
+      showSessionNotice("Notarization succeeded! Session is now on-chain.", "success");
+      loadSessionList();
+      const role = getRole();
+      if (role === "admin" || !isLoginRequired()) loadSessionStats();
+    } else {
+      showSessionNotice("Notarization failed: " + (res.data?.message || "Unknown error"), "error");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Notarize";
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to retry notarization:", err);
+    showSessionNotice("Notarization retry failed.", "error");
+  }
+}
+
+function showSessionNotice(message, type) {
+  // Remove any existing notice
+  const existing = document.getElementById("session-action-notice");
+  if (existing) existing.remove();
+
+  const notice = document.createElement("div");
+  notice.id = "session-action-notice";
+  notice.className = "notice " + (type === "error" ? "error" : "");
+  notice.style.cssText = type === "success"
+    ? "background:#0a2a1e;color:rgb(5,204,147);border:1px solid rgb(5,204,147);padding:12px;border-radius:8px;margin-bottom:16px;"
+    : "background:#2a1a1e;color:#a04048;border:1px solid #a04048;padding:12px;border-radius:8px;margin-bottom:16px;";
+  notice.textContent = message;
+
+  const listCard = document.getElementById("session-list-card");
+  if (listCard) listCard.parentNode.insertBefore(notice, listCard);
+
+  // Auto-remove after 6 seconds
+  setTimeout(() => { if (notice.parentNode) notice.remove(); }, 6000);
 }
 
 // --- Session UI helpers ---

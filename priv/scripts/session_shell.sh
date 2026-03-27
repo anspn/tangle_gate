@@ -141,6 +141,9 @@ _iota_audit_command() {
   [[ "$cmd" == "history -a"* ]] && return 0
   [[ "$cmd" == "chmod 644"* ]] && return 0
   [[ "$cmd" == "_iota_"* ]] && return 0
+  # Ignore watchdog setup commands
+  [[ "$cmd" == "_IOTA_WATCHDOG"* ]] && return 0
+  [[ "$cmd" == *"_watchdog_ppid"* ]] && return 0
 
   _IOTA_CMD_SEQ=$(( _IOTA_CMD_SEQ + 1 ))
   printf '%s\t%d\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_IOTA_CMD_SEQ" "$cmd" \
@@ -181,6 +184,11 @@ TRAPEOF
 # 'exit' restarts the shell instead of finalizing the session.
 cat >> "$SESSION_DIR/bashrc" << EXITEOF
 _iota_session_cleanup() {
+  # Kill the terminate watchdog if running
+  if [ -n "\$_IOTA_WATCHDOG_PID" ]; then
+    kill "\$_IOTA_WATCHDOG_PID" 2>/dev/null
+    wait "\$_IOTA_WATCHDOG_PID" 2>/dev/null
+  fi
   history -a 2>/dev/null
   chmod 644 "\$HISTFILE" 2>/dev/null
 }
@@ -209,6 +217,28 @@ echo "  History tampering is disabled — all commands are audit-logged."
 echo ""
 # ---- Activate the DEBUG trap LAST so init commands are not recorded ----
 trap '_iota_audit_command' DEBUG
+
+# ---- Background watchdog: monitors for admin termination ----
+# Polls every second for the terminate marker file. When found, sends
+# SIGHUP to the parent bash PID to forcefully end the session.
+# Uses HUP because interactive bash ignores SIGTERM by default.
+# This is more reliable than PROMPT_COMMAND because it works even if
+# the user is in the middle of a long-running command.
+(
+  _watchdog_ppid=$$
+  while true; do
+    sleep 1
+    if [ -f "$_IOTA_SESSION_DIR/terminate" ]; then
+      echo "" >&2
+      echo "  Session terminated by administrator." >&2
+      # Use SIGHUP, not SIGTERM — interactive bash ignores SIGTERM by default.
+      # SIGHUP causes bash to send HUP to all jobs and exit cleanly.
+      kill -HUP "$_watchdog_ppid" 2>/dev/null
+      break
+    fi
+  done
+) &
+_IOTA_WATCHDOG_PID=$!
 TAILEOF
 
 # --- Launch the interactive shell in a restart loop -------------------------
@@ -234,6 +264,11 @@ while true; do
 
   # If a shutdown signal was received, break out of the loop
   if [[ $_IOTA_SHUTDOWN_REQUESTED -eq 1 ]]; then
+    break
+  fi
+
+  # If admin terminated the session, break out of the loop
+  if [[ -f "$SESSION_DIR/terminate" ]]; then
     break
   fi
 

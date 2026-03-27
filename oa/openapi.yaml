@@ -600,6 +600,81 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
 
+  /sessions/{id}/terminate:
+    post:
+      tags: [Sessions]
+      summary: Terminate an active session (admin only)
+      description: >
+        Admin action to terminate an active user session. Writes a terminate
+        marker file so the shell exits at next prompt, then ends the session
+        with notarization.
+      operationId: terminateSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session terminated and notarized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session:
+                    $ref: '#/components/schemas/SessionResponse'
+                  message:
+                    type: string
+        '403':
+          description: Admin role required
+        '404':
+          description: Session not found
+        '409':
+          description: Session is not active
+
+  /sessions/{id}/retry-notarization:
+    post:
+      tags: [Sessions]
+      summary: Retry failed on-chain notarization (admin only)
+      description: >
+        Re-attempts on-chain notarization for a session in 'failed' status.
+        Uses the locally stored document hash to publish to the IOTA ledger.
+      operationId: retryNotarization
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Notarization succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session:
+                    $ref: '#/components/schemas/SessionResponse'
+                  message:
+                    type: string
+        '403':
+          description: Admin role required
+        '404':
+          description: Session not found
+        '409':
+          description: Session not in failed status
+        '422':
+          description: No hash or no secret key configured
+        '500':
+          description: Notarization failed
+
   /sessions/{id}:
     get:
       tags: [Sessions]

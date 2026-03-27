@@ -154,14 +154,15 @@ defmodule TangleGate.Vault.Client do
 
       case read_secret(key) do
         {:ok, data} when map_size(data) > 0 ->
-          {:ok, %{
-            did: data["did"],
-            document: data["document"],
-            verification_method_fragment: data["verification_method_fragment"],
-            private_key_jwk: data["private_key_jwk"],
-            network: data["network"],
-            published_at: data["published_at"]
-          }}
+          {:ok,
+           %{
+             did: data["did"],
+             document: data["document"],
+             verification_method_fragment: data["verification_method_fragment"],
+             private_key_jwk: data["private_key_jwk"],
+             network: data["network"],
+             published_at: data["published_at"]
+           }}
 
         {:ok, _empty} ->
           {:error, :not_found}

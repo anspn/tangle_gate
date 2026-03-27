@@ -185,7 +185,14 @@ defmodule TangleGate.Web.API.AuthHandler do
         })
 
       true ->
-        do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge, private_key_jwk, fragment)
+        do_vp_login_with_credential(
+          conn,
+          holder_doc_json,
+          credential_jwt,
+          challenge,
+          private_key_jwk,
+          fragment
+        )
     end
   end
 
@@ -370,7 +377,14 @@ defmodule TangleGate.Web.API.AuthHandler do
 
   # -- Helpers ---------------------------------------------------------------
 
-  defp do_vp_login_with_credential(conn, holder_doc_json, credential_jwt, challenge, private_key_jwk, fragment) do
+  defp do_vp_login_with_credential(
+         conn,
+         holder_doc_json,
+         credential_jwt,
+         challenge,
+         private_key_jwk,
+         fragment
+       ) do
     # 1. Consume the challenge (single-use)
     case ChallengeCache.consume_challenge(challenge) do
       :not_found ->

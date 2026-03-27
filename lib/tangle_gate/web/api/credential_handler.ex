@@ -596,7 +596,10 @@ defmodule TangleGate.Web.API.CredentialHandler do
               opts =
                 [secret_key: secret_key]
                 |> maybe_put(:node_url, Application.get_env(:tangle_gate, :node_url))
-                |> maybe_put(:identity_pkg_id, Application.get_env(:tangle_gate, :identity_pkg_id))
+                |> maybe_put(
+                  :identity_pkg_id,
+                  Application.get_env(:tangle_gate, :identity_pkg_id)
+                )
 
               case TangleGate.deactivate_did(user.did, opts) do
                 {:ok, _} ->
@@ -613,7 +616,8 @@ defmodule TangleGate.Web.API.CredentialHandler do
                     email: email,
                     did: user.did,
                     status: "did_revoked",
-                    message: "DID has been permanently deactivated on-chain and all credentials revoked."
+                    message:
+                      "DID has been permanently deactivated on-chain and all credentials revoked."
                   })
 
                 {:error, reason} ->
@@ -642,7 +646,10 @@ defmodule TangleGate.Web.API.CredentialHandler do
               opts =
                 [secret_key: secret_key]
                 |> maybe_put(:node_url, Application.get_env(:tangle_gate, :node_url))
-                |> maybe_put(:identity_pkg_id, Application.get_env(:tangle_gate, :identity_pkg_id))
+                |> maybe_put(
+                  :identity_pkg_id,
+                  Application.get_env(:tangle_gate, :identity_pkg_id)
+                )
 
               TangleGate.deactivate_did(user.did, opts)
             else

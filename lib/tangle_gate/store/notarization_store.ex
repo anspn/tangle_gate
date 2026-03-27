@@ -170,13 +170,15 @@ defmodule TangleGate.Store.NotarizationStore do
     Repo.pool()
     |> Mongo.aggregate(@sessions_collection, [
       %{"$match" => %{"started_at" => %{"$gte" => cutoff}}},
-      %{"$group" => %{
-        "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$started_at"}},
-        "total" => %{"$sum" => 1},
-        "notarized" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "notarized"]}, 1, 0]}},
-        "failed" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "failed"]}, 1, 0]}},
-        "active" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "active"]}, 1, 0]}}
-      }},
+      %{
+        "$group" => %{
+          "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$started_at"}},
+          "total" => %{"$sum" => 1},
+          "notarized" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "notarized"]}, 1, 0]}},
+          "failed" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "failed"]}, 1, 0]}},
+          "active" => %{"$sum" => %{"$cond" => [%{"$eq" => ["$status", "active"]}, 1, 0]}}
+        }
+      },
       %{"$sort" => %{"_id" => 1}}
     ])
     |> Enum.map(fn %{"_id" => date} = entry ->

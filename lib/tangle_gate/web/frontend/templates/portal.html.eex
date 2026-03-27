@@ -4,10 +4,10 @@
     <p>Present your Verifiable Credential to access an authenticated terminal session</p>
   </hgroup>
 
-  <!-- Step 1: Create VP from credential + private key -->
+  <!-- Credential + Private Key form — creates VP and starts session in one step -->
   <article id="create-vp-card">
     <header>
-      <h3>Step 1 — Create Verifiable Presentation</h3>
+      <h3>Start Terminal Session</h3>
     </header>
     <form id="create-vp-form" onsubmit="return false;">
       <label>
@@ -23,26 +23,9 @@
                   required></textarea>
         <small>Your Ed25519 private key JWK — provided when your DID was assigned.</small>
       </label>
-      <button type="submit" id="btn-create-vp">Create VP</button>
+      <button type="submit" id="btn-create-vp">Start Session</button>
     </form>
     <div id="create-vp-status" class="notice" style="display:none;"></div>
-    <pre id="create-vp-result" class="result-box" style="display:none;"></pre>
-  </article>
-
-  <!-- Step 2: Start session with VP -->
-  <article id="start-session-card" style="display:none;">
-    <header>
-      <h3>Step 2 — Start Terminal Session</h3>
-    </header>
-    <form id="start-session-form" onsubmit="return false;">
-      <label>
-        Presentation JWT
-        <textarea id="vp-jwt-input" rows="3" readonly></textarea>
-        <small>Auto-filled from Step 1. This VP will be verified before the session starts.</small>
-      </label>
-      <button type="submit" id="btn-start-session">Start Session</button>
-    </form>
-    <div id="start-session-status" class="notice" style="display:none;"></div>
   </article>
 
   <!-- Terminal: shown after successful VP verification -->

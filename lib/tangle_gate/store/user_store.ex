@@ -112,15 +112,19 @@ defmodule TangleGate.Store.UserStore do
 
   Returns `{:ok, user}` or `{:error, reason}`.
   """
-  @spec assign_did(String.t(), String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  @spec assign_did(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
   def assign_did(email, did, private_key_jwk \\ nil, fragment \\ nil) do
     update = %{
       "did" => did,
       "updated_at" => DateTime.utc_now()
     }
 
-    update = if private_key_jwk, do: Map.put(update, "private_key_jwk", private_key_jwk), else: update
-    update = if fragment, do: Map.put(update, "verification_method_fragment", fragment), else: update
+    update =
+      if private_key_jwk, do: Map.put(update, "private_key_jwk", private_key_jwk), else: update
+
+    update =
+      if fragment, do: Map.put(update, "verification_method_fragment", fragment), else: update
 
     case Mongo.update_one(
            Repo.pool(),
@@ -316,7 +320,7 @@ defmodule TangleGate.Store.UserStore do
 
   defp deserialize_user(doc) do
     %{
-      id: doc["_id"] && BSON.ObjectId.encode!(doc["_id"]) || doc["email"],
+      id: (doc["_id"] && BSON.ObjectId.encode!(doc["_id"])) || doc["email"],
       email: doc["email"],
       password_hash: doc["password_hash"],
       salt: doc["salt"],

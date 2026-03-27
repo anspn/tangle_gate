@@ -17,6 +17,7 @@ management and data notarization.
 - **Web Portal**: User portal with VP-gated terminal access via ttyd
 - **Session Recording**: Tamper-proof TTY session recording with downloadable audit logs
 - **On-Chain Notarization**: Automatic publishing of session hashes to the IOTA Rebased ledger
+- **Session Management**: Admin can terminate active sessions and retry failed notarizations
 - **Verification**: Verifier role with on-chain notarization verification page
 - **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal, MongoDB, and Vault services
 
@@ -206,7 +207,7 @@ MIX_ENV=local mix test
 - **lib/tangle_gate/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
 - **lib/tangle_gate/credential/verifier.ex** (L21) — Verify that the module is truly self-contained and has no hidden dependencies on application state or GenServers; test connectivity with IOTA testnet
 - **lib/tangle_gate/store/credential_store.ex** — Implement on-chain credential revocation via revocation bitmaps when `iota_credential_nif` adds support for revocation operations
-
+- Force shell termination when admin terminates a session (buggy behaviour of user staying in)
 
 ## License
 
