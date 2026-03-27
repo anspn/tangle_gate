@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { LoadingButton } from '@/components/shared/LoadingButton';
 import { PageHeader, StatCard, EmptyState } from '@/components/shared/UIElements';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { DIDDisplay, HashDisplay } from '@/components/shared/DataDisplay';
+import { DIDDisplay, HashDisplay, CopyableField } from '@/components/shared/DataDisplay';
 import { sessionApi, downloadSession } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
 import type { Session } from '@/types';
@@ -149,10 +149,6 @@ function SessionDetailDialog({ sessionId, onClose }: { sessionId: string; onClos
                 <div className="mt-1"><DIDDisplay did={session.did} /></div>
               </div>
               <div>
-                <span className="text-xs text-tg-text-muted">User ID</span>
-                <p className="mt-1 font-mono text-xs text-tg-text-secondary">{session.user_id}</p>
-              </div>
-              <div>
                 <span className="text-xs text-tg-text-muted">Started</span>
                 <p className="mt-1 text-xs">{format(new Date(session.started_at), 'PPpp')}</p>
               </div>
@@ -169,10 +165,7 @@ function SessionDetailDialog({ sessionId, onClose }: { sessionId: string; onClos
               </div>
             )}
             {session.on_chain_id && (
-              <div>
-                <span className="text-xs text-tg-text-muted">On-Chain ID</span>
-                <p className="mt-1 font-mono text-xs text-tg-text-secondary break-all">{session.on_chain_id}</p>
-              </div>
+              <CopyableField value={session.on_chain_id} label="On-Chain ID" />
             )}
             {session.error && (
               <div>

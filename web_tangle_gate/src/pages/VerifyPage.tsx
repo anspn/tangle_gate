@@ -2,13 +2,14 @@ import { useState, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { LoadingButton } from '@/components/shared/LoadingButton';
 import { InlineNotice, PageHeader } from '@/components/shared/UIElements';
 import { HashDisplay, CopyableField } from '@/components/shared/DataDisplay';
 import { verifyApi } from '@/lib/api';
 import { toast } from 'sonner';
 import type { OnChainNotarization } from '@/types';
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Upload } from 'lucide-react';
 
 export default function VerifyPage() {
   const [onChainData, setOnChainData] = useState<OnChainNotarization | null>(null);
@@ -94,11 +95,13 @@ function OnChainReadCard({ onData }: { onData: (data: OnChainNotarization) => vo
 function HashCompareCard({ onChainHash, onComputed }: { onChainHash: string | null; onComputed: (hash: string) => void }) {
   const [document, setDocument] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setFileName(file.name);
     const reader = new FileReader();
     reader.onload = (ev) => setDocument(ev.target?.result as string || '');
     reader.readAsText(file);
@@ -129,7 +132,16 @@ function HashCompareCard({ onChainHash, onComputed }: { onChainHash: string | nu
         </div>
         <div className="space-y-2">
           <Label>Or upload file</Label>
-          <Input ref={fileRef} type="file" accept=".json" onChange={handleFileUpload} />
+          <input ref={fileRef} type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
+          <Button
+            type="button"
+            variant="outline"
+            className="cursor-pointer"
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload className="mr-2 h-4 w-4" />
+            {fileName ?? 'Choose File'}
+          </Button>
         </div>
         <LoadingButton type="submit" loading={loading}>Compute & Compare Hash</LoadingButton>
       </form>

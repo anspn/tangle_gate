@@ -278,18 +278,18 @@ function UserManagementSection() {
                           {status !== 'DID Revoked' && (
                             <>
                               {!u.did && (
-                                <LoadingButton size="sm" variant="outline" onClick={() => handleAssignDid(u.email)}>
+                                <LoadingButton size="sm" variant="outline" className="min-w-[7rem]" onClick={() => handleAssignDid(u.email)}>
                                   Assign DID
                                 </LoadingButton>
                               )}
                               {u.did && !u.authorized && (
-                                <LoadingButton size="sm" variant="outline" onClick={() => handleAuthorize(u.email)}>
+                                <LoadingButton size="sm" variant="outline" className="min-w-[7rem]" onClick={() => handleAuthorize(u.email)}>
                                   Authorize
                                 </LoadingButton>
                               )}
                               {u.did && u.authorized && (
                                 <ConfirmDialog
-                                  trigger={<LoadingButton size="sm" variant="outline">Unauthorize</LoadingButton>}
+                                  trigger={<LoadingButton size="sm" variant="outline" className="min-w-[7rem]">Unauthorize</LoadingButton>}
                                   message={`Revoke credentials for ${u.email}?`}
                                   cancelLabel="Go back"
                                   onConfirm={() => handleUnauthorize(u.email)}
@@ -297,7 +297,7 @@ function UserManagementSection() {
                               )}
                               {u.did && (
                                 <ConfirmDialog
-                                  trigger={<LoadingButton size="sm" variant="outline">Revoke DID</LoadingButton>}
+                                  trigger={<LoadingButton size="sm" variant="outline" className="min-w-[7rem]">Revoke DID</LoadingButton>}
                                   title="Revoke DID"
                                   message={`This will permanently deactivate the DID assigned to ${u.email} on-chain. This action is irreversible.`}
                                   confirmLabel="Revoke"
@@ -309,7 +309,7 @@ function UserManagementSection() {
                           )}
                           {status === 'DID Revoked' && (
                             <ConfirmDialog
-                              trigger={<LoadingButton size="sm" variant="outline">Reactivate DID</LoadingButton>}
+                              trigger={<LoadingButton size="sm" variant="outline" className="min-w-[7rem]">Reactivate DID</LoadingButton>}
                               title="Reactivate DID"
                               message={`The previous DID was permanently deactivated. This will generate and publish a new DID on-chain for ${u.email}, resetting their status to Unauthorized.`}
                               confirmLabel="Reactivate"
@@ -319,7 +319,7 @@ function UserManagementSection() {
                             />
                           )}
                           <ConfirmDialog
-                            trigger={<LoadingButton size="sm" variant="destructive">Delete User</LoadingButton>}
+                            trigger={<LoadingButton size="sm" variant="destructive" className="min-w-[7rem]">Delete User</LoadingButton>}
                             title="Delete User"
                             message={`This will irreversibly delete ${u.email}'s credentials from the system. Their DID will be revoked on-chain and their access will be permanently disabled.`}
                             confirmLabel="Delete"

@@ -1,3 +1,4 @@
+import { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { healthApi, credentialApi, sessionApi, dashboardApi } from '@/lib/api';
 import { PageHeader } from '@/components/shared/UIElements';
@@ -5,11 +6,32 @@ import { StatusBadge } from '@/components/shared/StatusBadge';
 import { DIDDisplay } from '@/components/shared/DataDisplay';
 import { SessionsChart } from '@/components/dashboard/SessionsChart';
 import { CredentialsChart } from '@/components/dashboard/CredentialsChart';
-import { format } from 'date-fns';
+import { format, eachDayOfInterval, subDays } from 'date-fns';
 import {
   Activity, Server, Users, ShieldCheck, FileKey, BarChart3,
-  TrendingUp, UserCheck, ShieldOff,
+  TrendingUp, UserCheck, ShieldOff, Clock,
 } from 'lucide-react';
+
+/** Fill missing dates with zero values so the chart shows every day in the range. */
+function fillSessionDates(
+  data: Array<{ date: string; total: number; notarized: number; failed: number; active: number }>,
+): typeof data {
+  const today = new Date();
+  const start = subDays(today, 29);
+  const allDays = eachDayOfInterval({ start, end: today }).map((d) => format(d, 'yyyy-MM-dd'));
+  const map = new Map(data.map((d) => [d.date, d]));
+  return allDays.map((date) => map.get(date) ?? { date, total: 0, notarized: 0, failed: 0, active: 0 });
+}
+
+function fillCredentialDates(
+  data: Array<{ date: string; count: number }>,
+): typeof data {
+  const today = new Date();
+  const start = subDays(today, 29);
+  const allDays = eachDayOfInterval({ start, end: today }).map((d) => format(d, 'yyyy-MM-dd'));
+  const map = new Map(data.map((d) => [d.date, d]));
+  return allDays.map((date) => map.get(date) ?? { date, count: 0 });
+}
 
 export default function DashboardPage() {
   return (
@@ -85,6 +107,34 @@ function StatusBar() {
           <span className="text-sm text-tg-warning">Server DID not provisioned</span>
         )}
       </div>
+
+      {/* Divider */}
+      <div className="hidden sm:block h-5 w-px bg-border" />
+
+      {/* Current Date/Time */}
+      <CurrentDateTime />
+    </div>
+  );
+}
+
+// =============================================================================
+// Current Date/Time — live-updating clock
+// =============================================================================
+
+function CurrentDateTime() {
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2">
+      <Clock className="h-4 w-4 text-tg-text-muted" />
+      <span className="text-sm font-medium text-tg-text-secondary">
+        {format(now, 'PP p')}
+      </span>
     </div>
   );
 }
@@ -249,6 +299,15 @@ function ChartsSection() {
     refetchInterval: 30000,
   });
 
+  const sessionChartData = useMemo(
+    () => fillSessionDates(data?.ok ? data.data.sessions_by_date : []),
+    [data],
+  );
+  const credentialChartData = useMemo(
+    () => fillCredentialDates(data?.ok ? data.data.credentials.by_date : []),
+    [data],
+  );
+
   return (
     <div className="grid gap-4 md:grid-cols-2">
       {/* Sessions Activity chart */}
@@ -261,7 +320,7 @@ function ChartsSection() {
         {isLoading ? (
           <div className="h-[280px] animate-pulse rounded bg-tg-surface" />
         ) : (
-          <SessionsChart data={data?.ok ? data.data.sessions_by_date : []} />
+          <SessionsChart data={sessionChartData} />
         )}
       </div>
 
@@ -275,7 +334,7 @@ function ChartsSection() {
         {isLoading ? (
           <div className="h-[280px] animate-pulse rounded bg-tg-surface" />
         ) : (
-          <CredentialsChart data={data?.ok ? data.data.credentials.by_date : []} />
+          <CredentialsChart data={credentialChartData} />
         )}
       </div>
     </div>
