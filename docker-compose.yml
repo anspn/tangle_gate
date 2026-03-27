@@ -29,7 +29,7 @@ services:
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: "${VAULT_ROOT_TOKEN}"
     networks:
-      - iotanet
+      - tangle_gate_net
     dns: 1.1.1.1
     ports:
       - "${PORT:-4000}:4000"
@@ -53,9 +53,9 @@ services:
   # ---------------------------------------------------------------------------
   mongo:
     image: mongo:7
-    container_name: iota_mongo
+    container_name: tangle_gate_mongo
     networks:
-      - iotanet
+      - tangle_gate_net
     volumes:
       - mongo_data:/data/db
     environment:
@@ -77,9 +77,9 @@ services:
   # ---------------------------------------------------------------------------
   vault:
     image: hashicorp/vault:latest
-    container_name: iota_vault
+    container_name: tangle_gate_vault
     networks:
-      - iotanet
+      - tangle_gate_net
     cap_add:
       - IPC_LOCK
     volumes:
@@ -106,8 +106,8 @@ services:
   ttyd:
     image: tsl0922/ttyd:latest
     networks:
-      - iotanet
-    container_name: iota_ttyd
+      - tangle_gate_net
+    container_name: tangle_gate_ttyd
     # Create the pending directory with world-writable permissions so the
     # Elixir app (non-root "iota" user) can write pending session files.
     # Then launch ttyd with the session recording shell script.
@@ -133,8 +133,8 @@ volumes:
   vault_data:
 
 networks:
-  iotanet:
-    name: iota_network
+  tangle_gate_net:
+    name: tangle_gate_network
     driver: bridge
     ipam:
       config:
