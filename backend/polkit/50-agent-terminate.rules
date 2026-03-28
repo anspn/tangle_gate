@@ -1,0 +1,10 @@
+// polkit JavaScript rule — allows the "agent" user to terminate
+// logind sessions and manage systemd units (session scopes).
+// Placed in /etc/polkit-1/rules.d/50-agent-terminate.rules
+polkit.addRule(function(action, subject) {
+    if (subject.user === "agent" &&
+        (action.id === "org.freedesktop.login1.manage" ||
+         action.id === "org.freedesktop.systemd1.manage-units")) {
+        return polkit.Result.YES;
+    }
+});

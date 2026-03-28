@@ -28,8 +28,8 @@ services:
       # Vault connection (internal Docker network)
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: "${VAULT_ROOT_TOKEN}"
-      # Agent microservice (internal Docker network)
-      AGENT_URL: "http://agent:8800"
+      # Agent microservice (internal Docker network — runs inside backend container)
+      AGENT_URL: "http://backend:8800"
       AGENT_API_KEY: "${AGENT_API_KEY:?Set AGENT_API_KEY in .env}"
     networks:
       - tangle_gate_net
@@ -42,8 +42,6 @@ services:
         condition: service_healthy
       vault:
         condition: service_healthy
-      ttyd:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/api/health"]
       interval: 30s
@@ -103,51 +101,54 @@ services:
       retries: 5
 
   # ---------------------------------------------------------------------------
-  # ttyd — Web-based terminal accessible from the User Portal
-  # Commands are recorded to the shared session volume for notarization.
+  # Backend — systemd container with logind + sshd + ttyd + tangle_gate_agent
   # ---------------------------------------------------------------------------
-  ttyd:
-    image: tsl0922/ttyd:latest
-    networks:
-      - tangle_gate_net
-    container_name: tangle_gate_ttyd
-    # Create the pending directory with world-writable permissions so the
-    # Elixir app (non-root "iota" user) can write pending session files.
-    # Then launch ttyd with the session recording shell script.
-    command: >
-      sh -c '
-        mkdir -p /data/sessions/pending &&
-        chmod 777 /data/sessions /data/sessions/pending &&
-        exec ttyd --writable --port 7681 /data/scripts/session_shell.sh'
-    volumes:
-      # Shared session recording volume (shell writes history, reads pending files)
-      - session_data:/data/sessions
-      # Bind-mount the session shell script (read-only)
-      - ./priv/scripts:/data/scripts:ro
-    environment:
-      SESSIONS_DIR: /data/sessions
-    ports:
-      - "${TTYD_PORT:-7681}:7681"
-    restart: unless-stopped
-
+  # Replaces the separate ttyd and agent containers. Runs systemd as PID 1
+  # so that systemd-logind manages user sessions. SSH sessions go through
+  # PAM → pam_systemd, making them visible to `loginctl`. The agent uses
+  # `loginctl terminate-session` to reliably kick users out on admin request.
+  #
+  # Services inside the container:
+  #   - systemd-logind  (session management)
+  #   - sshd            (PAM-based login → logind registration)
+  #   - ttyd            (web terminal wrapping SSH login)
+  #   - tangle_gate_agent (credential verification + session termination)
   # ---------------------------------------------------------------------------
-  # TangleGate Agent — Credential verification & session termination
-  # ---------------------------------------------------------------------------
-  agent:
+  backend:
     build:
-      context: ./tangle_gate_agent
-      dockerfile: Dockerfile
-    container_name: tangle_gate_agent
-    env_file: .env
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: tangle_gate_backend
+    # systemd as PID 1 requires privileged mode and tmpfs on /run and /tmp.
+    # cgroupns "host" gives the container access to the host cgroup hierarchy
+    # which is required for systemd to work properly as PID 1.
+    privileged: true
+    cgroup: host
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    volumes:
+      # systemd needs cgroup filesystem
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      # Shared session recording volume
+      - session_data:/data/sessions
     environment:
+      # Agent configuration (injected into systemd env file at boot)
       TANGLE_GATE_WS_URL: "ws://app:4000/ws/agent"
       AGENT_API_KEY: "${AGENT_API_KEY:?Set AGENT_API_KEY in .env}"
       IOTA_NODE_URL: "${IOTA_NODE_URL:-https://api.testnet.iota.cafe}"
-      PORT: "8800"
+      IOTA_IDENTITY_PKG_ID: "${IOTA_IDENTITY_PKG_ID:-}"
+      AGENT_PORT: "8800"
+      # Session user password (optional, default: sessionpass)
+      SESSION_USER_PASSWORD: "${SESSION_USER_PASSWORD:-sessionpass}"
     networks:
       - tangle_gate_net
     dns: 1.1.1.1
     ports:
+      # ttyd web terminal
+      - "${TTYD_PORT:-7681}:7681"
+      # Agent HTTP API
       - "${AGENT_PORT:-8800}:8800"
     restart: unless-stopped
     depends_on:
@@ -156,8 +157,8 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8800/api/health"]
       interval: 30s
-      timeout: 5s
-      start_period: 10s
+      timeout: 10s
+      start_period: 30s
       retries: 3
 
 volumes:

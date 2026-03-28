@@ -120,8 +120,10 @@ defmodule TangleGate.Session.Manager do
   @doc """
   Terminate an active session (admin action).
 
-  Writes a terminate marker file so the ttyd shell exits at the next prompt,
-  then ends the session (reads history, hashes, notarizes on-chain).
+  Immediately sets the session status to `:terminating` in ETS so that
+  frontend polling detects it before the notarization flow completes.
+  Then sends a terminate command to the agent via WebSocket, waits for
+  the shell to exit, and notarizes the audit log on-chain.
 
   ## Parameters
   - `session_id` — The active session to terminate
@@ -283,6 +285,11 @@ defmodule TangleGate.Session.Manager do
   def handle_call({:terminate_session, session_id}, _from, state) do
     case :ets.lookup(@table, session_id) do
       [{^session_id, session}] when session.status == :active ->
+        # Mark as terminating immediately so the frontend polling detects it
+        # before the full notarization flow completes
+        terminating = %{session | status: :terminating}
+        :ets.insert(@table, {session_id, terminating})
+
         # Write terminate marker so the shell exits (Docker/ttyd fallback)
         write_terminate_marker(session_id)
 

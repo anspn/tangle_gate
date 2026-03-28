@@ -1,0 +1,30 @@
+[Unit]
+Description=TangleGate Agent — Credential Verifier & Session Manager
+After=network-online.target dbus.service systemd-logind.service
+Wants=network-online.target
+Requires=dbus.service systemd-logind.service
+
+[Service]
+Type=exec
+User=agent
+Group=agent
+
+# Grant CAP_KILL for sending signals and CAP_SYS_PTRACE for reading
+# /proc/<pid>/environ to match sessions by IOTA_SESSION_ID env var.
+AmbientCapabilities=CAP_KILL CAP_SYS_PTRACE
+
+# Allow the agent to talk to the logind D-Bus API
+SupplementaryGroups=systemd-journal
+
+WorkingDirectory=/opt/tangle_gate_agent
+EnvironmentFile=/etc/tangle_gate_agent/env
+ExecStart=/opt/tangle_gate_agent/bin/tangle_gate_agent start
+ExecStop=/opt/tangle_gate_agent/bin/tangle_gate_agent stop
+
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Install]
+WantedBy=multi-user.target

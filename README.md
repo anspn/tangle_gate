@@ -23,8 +23,8 @@ and WebSocket.
 - **Verification**: Verifier role with on-chain notarization verification page
 - **Credential Verification Agent**: Standalone microservice (`tangle_gate_agent`) for VC/VP verification, deployable as systemd service
 - **Graceful Degradation**: Main app continues operating when the agent is unavailable (verification fails gracefully)
-- **Agent Session Termination**: Agent can terminate user sessions via OS signals (`kill -HUP`) or `loginctl`
-- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal, MongoDB, Vault, and agent services
+- **Agent Session Termination**: Agent terminates user sessions via `systemctl kill` (SIGHUP to session scope) + `loginctl terminate-session` for cleanup
+- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with backend (systemd + logind + sshd + ttyd + agent), MongoDB, and Vault
 
 
 ## Quick Start
@@ -69,7 +69,7 @@ TangleGate.Application (rest_for_one)
     └── TangleGate.Web.Router          # Includes /ws/agent WebSocket upgrade
 ```
 
-### Agent Microservice
+### Agent Microservice (runs inside backend container)
 
 ```
 TangleGateAgent.Application (rest_for_one)
@@ -79,6 +79,9 @@ TangleGateAgent.Application (rest_for_one)
 └── Bandit (port 8800)
     └── TangleGateAgent.Web.Router     # HTTP verification API
 ```
+
+The backend container runs systemd as PID 1 with logind, sshd (PAM), ttyd, and the agent.
+Session termination sends SIGHUP to the logind session scope via `systemctl kill`, which kills all processes in the session. `loginctl terminate-session` follows as cleanup.
 
 ## API Reference
 
@@ -179,7 +182,7 @@ Configure via `config/config.exs`
 # 1. Copy the env example and fill in secrets
 cp .env.example .env
 
-# 2. Build and start (app + ttyd terminal)
+# 2. Build and start all services
 docker compose up -d --build
 
 # 3. Open http://localhost:4000 (app) or http://localhost:7681 (ttyd directly)
@@ -190,10 +193,11 @@ docker compose up -d --build
 | Service | Port | Purpose |
 |---------|------|---------|
 | `app` | 4000 | IOTA Service (Elixir) |
-| `agent` | 8800 | Credential verification agent (Elixir) |
+| `backend` | 7681, 8800 | systemd container: logind + sshd + ttyd + tangle_gate_agent |
 | `mongo` | 27017 | MongoDB — document store for sessions & notarization records |
 | `vault` | 8200 | HashiCorp Vault — secrets management (IOTA private keys) |
-| `ttyd` | 7681 | Web-based terminal — embedded in portal after VP verification |
+
+The `backend` container runs systemd as PID 1 and bundles the web terminal (ttyd), SSH server (with PAM/logind session management), and the credential verification agent. When an admin terminates a session, the agent sends SIGHUP to the logind session scope via `systemctl kill`, which immediately kills all processes (interactive bash doesn't ignore SIGHUP). `loginctl terminate-session` follows for scope cleanup.
 
 ### Required Environment Variables
 
@@ -228,7 +232,7 @@ MIX_ENV=local mix test
 
 ### Docker (recommended)
 
-The agent runs as a Docker service alongside the main app. See Docker section above.
+The agent runs inside the `backend` container as a systemd service. See Docker section above.
 
 ### systemd (bare-metal)
 
@@ -254,7 +258,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tangle_gate_agent
 ```
 
-The agent requires `CAP_KILL` capability for sending signals to user sessions. The systemd unit file sets `AmbientCapabilities=CAP_KILL` automatically.
+The agent requires `CAP_KILL` and `CAP_SYS_PTRACE` capabilities for sending signals and reading process info. The systemd unit file sets `AmbientCapabilities=CAP_KILL CAP_SYS_PTRACE` automatically. A polkit JavaScript rule (`/etc/polkit-1/rules.d/50-agent-terminate.rules`) authorizes the agent user to call `loginctl terminate-session` and `systemctl kill` on session scopes.
 
 ## TODO
 

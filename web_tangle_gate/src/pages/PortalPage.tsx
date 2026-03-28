@@ -7,7 +7,7 @@ import { DIDDisplay } from '@/components/shared/DataDisplay';
 import { sessionApi } from '@/lib/api';
 import type { CreateVPForSessionResponse } from '@/types';
 
-type Phase = 'idle' | 'active_session';
+type Phase = 'idle' | 'active_session' | 'terminated';
 
 export default function PortalPage() {
   const [phase, setPhase] = useState<Phase>('idle');
@@ -74,11 +74,36 @@ export default function PortalPage() {
     setHolderDid('');
   };
 
+  const handleTerminated = useCallback(() => {
+    // Remove the iframe immediately to prevent ttyd reconnection
+    const iframe = document.getElementById('terminal-iframe') as HTMLIFrameElement;
+    if (iframe) iframe.src = 'about:blank';
+    sessionStorage.removeItem('iota_portal_did');
+    sessionStorage.removeItem('iota_portal_session');
+    // Clear sessionId so beforeunload doesn't try to end an already-terminated session
+    setSessionId('');
+    setPhase('terminated');
+  }, []);
+
+  const handleReturnToIdle = useCallback(() => {
+    setPhase('idle');
+    setSessionId('');
+    setHolderDid('');
+  }, []);
+
   return (
     <div className="space-y-8">
       <PageHeader title="Terminal Portal" subtitle="Present your Verifiable Credential to start a secure terminal session" />
       {phase === 'idle' && <VPCreationCard onSessionStarted={handleSessionStarted} />}
-      {phase === 'active_session' && <TerminalCard did={holderDid} onDisconnect={handleDisconnect} />}
+      {phase === 'active_session' && (
+        <TerminalCard
+          sessionId={sessionId}
+          did={holderDid}
+          onDisconnect={handleDisconnect}
+          onTerminated={handleTerminated}
+        />
+      )}
+      {phase === 'terminated' && <TerminatedBanner onReturn={handleReturnToIdle} />}
     </div>
   );
 }
@@ -146,8 +171,34 @@ function VPCreationCard({ onSessionStarted }: { onSessionStarted: (sessionId: st
   );
 }
 
-function TerminalCard({ did, onDisconnect }: { did: string; onDisconnect: () => void }) {
+function TerminalCard({
+  sessionId,
+  did,
+  onDisconnect,
+  onTerminated,
+}: {
+  sessionId: string;
+  did: string;
+  onDisconnect: () => void;
+  onTerminated: () => void;
+}) {
   const [disconnecting, setDisconnecting] = useState(false);
+
+  // Poll session status every 3s to detect admin termination
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await sessionApi.get(sessionId);
+        if (res.ok && res.data.status !== 'active') {
+          clearInterval(interval);
+          onTerminated();
+        }
+      } catch {
+        // Network error — don't terminate on transient failures
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [sessionId, onTerminated]);
 
   const handleDisconnect = async () => {
     setDisconnecting(true);
@@ -175,6 +226,31 @@ function TerminalCard({ did, onDisconnect }: { did: string; onDisconnect: () => 
         style={{ height: 500 }}
         title="Terminal"
       />
+    </div>
+  );
+}
+
+function TerminatedBanner({ onReturn }: { onReturn: () => void }) {
+  return (
+    <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-6 shadow-tg-sm">
+      <div className="flex items-start gap-4">
+        <div className="flex-shrink-0 mt-0.5">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        </div>
+        <div className="flex-1">
+          <h3 className="text-lg font-semibold text-destructive">Session Terminated</h3>
+          <p className="mt-1 text-sm text-foreground/80">
+            Your terminal session has been terminated by an administrator. All commands have been recorded and will be notarized on the IOTA Tangle.
+          </p>
+        </div>
+      </div>
+      <div className="mt-5">
+        <LoadingButton variant="outline" onClick={onReturn} loading={false}>
+          Return to Portal
+        </LoadingButton>
+      </div>
     </div>
   );
 }

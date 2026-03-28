@@ -1,0 +1,22 @@
+[Unit]
+Description=ttyd Web Terminal (SSH-backed)
+After=network-online.target sshd.service
+Wants=network-online.target
+Requires=sshd.service
+
+[Service]
+Type=simple
+
+# ttyd wraps SSH so that every web terminal connection goes through PAM,
+# which registers the session with systemd-logind. This makes the session
+# visible to loginctl and terminable by the agent.
+ExecStart=/usr/local/bin/ttyd \
+  --writable \
+  --port 7681 \
+  /data/scripts/session_login.sh
+
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

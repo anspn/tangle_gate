@@ -1,0 +1,12 @@
+[Unit]
+Description=Backend container runtime configuration
+Before=tangle_gate_agent.service ttyd.service sshd.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/configure.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
