@@ -1,7 +1,9 @@
 # TangleGate
 
-Elixir application for IOTA Tangle operations, including DID (Decentralized Identifier)
-management and data notarization.
+Elixir application (v2.0.0) for IOTA Tangle operations, including DID (Decentralized Identifier)
+management, Verifiable Credentials/Presentations, and data notarization. Credential verification
+is handled by a standalone microservice (**tangle_gate_agent**) that communicates via HTTP REST
+and WebSocket.
 
 ## Features
 
@@ -19,7 +21,10 @@ management and data notarization.
 - **On-Chain Notarization**: Automatic publishing of session hashes to the IOTA Rebased ledger
 - **Session Management**: Admin can terminate active sessions and retry failed notarizations
 - **Verification**: Verifier role with on-chain notarization verification page
-- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal, MongoDB, and Vault services
+- **Credential Verification Agent**: Standalone microservice (`tangle_gate_agent`) for VC/VP verification, deployable as systemd service
+- **Graceful Degradation**: Main app continues operating when the agent is unavailable (verification fails gracefully)
+- **Agent Session Termination**: Agent can terminate user sessions via OS signals (`kill -HUP`) or `loginctl`
+- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with ttyd terminal, MongoDB, Vault, and agent services
 
 
 ## Quick Start
@@ -42,21 +47,37 @@ true = TangleGate.valid_did?(did_result.did)
 
 ## Supervision Tree
 
+### Main Application
+
 ```
 TangleGate.Application (rest_for_one)
-├── TangleGate.NIF.Loader            # Ensures NIF is loaded
-├── TangleGate.Store.Repo            # MongoDB connection pool
-├── TangleGate.Identity.Supervisor   # (one_for_one)
-│   ├── TangleGate.Identity.Cache    # ETS-backed DID cache
-│   └── TangleGate.Identity.Server   # DID operations
-├── TangleGate.Credential.Supervisor # (one_for_one)
+├── TangleGate.NIF.Loader              # Ensures NIF is loaded
+├── TangleGate.Store.Repo              # MongoDB connection pool
+├── TangleGate.Identity.Supervisor     # (one_for_one)
+│   ├── TangleGate.Identity.Cache      # ETS-backed DID cache
+│   └── TangleGate.Identity.Server     # DID operations
+├── TangleGate.Credential.Supervisor   # (one_for_one)
 │   ├── TangleGate.Credential.ChallengeCache  # ETS challenge nonce store
-│   └── TangleGate.Credential.Server # VC/VP operations
-├── TangleGate.Notarization.Supervisor  # (one_for_one)
-│   ├── TangleGate.Notarization.Queue   # Job queue
-│   └── TangleGate.Notarization.Server  # Notarization operations
-└── TangleGate.Session.Supervisor    # (one_for_one)
-    └── TangleGate.Session.Manager   # Session recording & notarization
+│   └── TangleGate.Credential.Server   # VC/VP operations
+├── TangleGate.Notarization.Supervisor # (one_for_one)
+│   ├── TangleGate.Notarization.Queue  # Job queue
+│   └── TangleGate.Notarization.Server # Notarization operations
+├── TangleGate.Session.Supervisor      # (one_for_one)
+│   └── TangleGate.Session.Manager     # Session recording & notarization
+├── TangleGate.Web.WS.AgentRegistry   # Tracks connected agent WebSocket PIDs
+└── Bandit                              # HTTP server
+    └── TangleGate.Web.Router          # Includes /ws/agent WebSocket upgrade
+```
+
+### Agent Microservice
+
+```
+TangleGateAgent.Application (rest_for_one)
+├── TangleGateAgent.NIF.Loader         # Ensures credential/DID NIFs are loaded
+├── TangleGateAgent.Session.Tracker    # ETS-backed session tracking
+├── TangleGateAgent.WS.Client          # WebSocket client → tangle_gate /ws/agent
+└── Bandit (port 8800)
+    └── TangleGateAgent.Web.Router     # HTTP verification API
 ```
 
 ## API Reference
@@ -169,6 +190,7 @@ docker compose up -d --build
 | Service | Port | Purpose |
 |---------|------|---------|
 | `app` | 4000 | IOTA Service (Elixir) |
+| `agent` | 8800 | Credential verification agent (Elixir) |
 | `mongo` | 27017 | MongoDB — document store for sessions & notarization records |
 | `vault` | 8200 | HashiCorp Vault — secrets management (IOTA private keys) |
 | `ttyd` | 7681 | Web-based terminal — embedded in portal after VP verification |
@@ -179,6 +201,7 @@ docker compose up -d --build
 - `ADMIN_PASSWORD` — Admin user password
 - `MONGO_PASSWORD` — MongoDB root password
 - `VAULT_ROOT_TOKEN` — Vault dev server root token
+- `AGENT_API_KEY` — Shared API key for main app ↔ agent authentication
 
 See [.env.example](.env.example) for the full list.
 
@@ -201,14 +224,44 @@ IOTA_TESTNET=1 mix test test/tangle_gate/integration/ledger_identity_test.exs
 MIX_ENV=local mix test
 ```
 
+## Agent Deployment
+
+### Docker (recommended)
+
+The agent runs as a Docker service alongside the main app. See Docker section above.
+
+### systemd (bare-metal)
+
+```bash
+# Build the release
+cd tangle_gate_agent && MIX_ENV=prod mix release
+
+# Create system user
+sudo useradd --system --shell /usr/sbin/nologin tangle_agent
+
+# Install the release
+sudo cp -r _build/prod/rel/tangle_gate_agent /opt/tangle_gate_agent
+sudo chown -R tangle_agent:tangle_agent /opt/tangle_gate_agent
+
+# Configure environment
+sudo mkdir -p /etc/tangle_gate_agent
+sudo cp systemd/env.example /etc/tangle_gate_agent/env
+sudo nano /etc/tangle_gate_agent/env  # fill in values
+
+# Install and start service
+sudo cp systemd/tangle_gate_agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tangle_gate_agent
+```
+
+The agent requires `CAP_KILL` capability for sending signals to user sessions. The systemd unit file sets `AmbientCapabilities=CAP_KILL` automatically.
+
 ## TODO
 
 - **lib/tangle_gate/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
 - **lib/tangle_gate/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
-- **lib/tangle_gate/credential/verifier.ex** (L21) — Verify that the module is truly self-contained and has no hidden dependencies on application state or GenServers; test connectivity with IOTA testnet
 - **lib/tangle_gate/store/credential_store.ex** — Implement on-chain credential revocation via revocation bitmaps when `iota_credential_nif` adds support for revocation operations
-- Force shell termination when admin terminates a session (buggy behaviour of user staying in)
-
+- Swap websocket client/server roles between app and agent. Right now the agent is the client but if app was the client it would be more semantically correct when configuring agent connection parameters
 ## License
 
 MIT

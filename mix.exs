@@ -31,6 +31,7 @@ defmodule TangleGate.MixProject do
       # Web server & HTTP
       {:bandit, "~> 1.10"},
       {:plug, "~> 1.19"},
+      {:websock_adapter, "~> 0.5"},
 
       # JWT authentication
       {:joken, "~> 2.6"},

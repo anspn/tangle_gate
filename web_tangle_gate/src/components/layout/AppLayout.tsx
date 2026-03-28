@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
-import { LogOut, LayoutDashboard, Fingerprint, Terminal, List, CheckCircle, Menu, X } from 'lucide-react';
+import { LogOut, LayoutDashboard, Fingerprint, Terminal, List, CheckCircle, Menu, X, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 declare const __APP_VERSION__: string;
@@ -11,6 +11,7 @@ const navItems = {
   admin: [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/identity', label: 'Identity', icon: Fingerprint },
+    { path: '/agent', label: 'Agent', icon: Radio },
     { path: '/sessions', label: 'Sessions', icon: List },
     { path: '/verify', label: 'Verify', icon: CheckCircle },
   ],

@@ -56,7 +56,7 @@ function StatusBar() {
   const health = useQuery({
     queryKey: ['health'],
     queryFn: () => healthApi.check(),
-    refetchInterval: 30000,
+    refetchInterval: 10_000,
   });
 
   const serverDid = useQuery({
@@ -71,15 +71,8 @@ function StatusBar() {
         <Activity className="h-4 w-4 text-tg-text-muted" />
         {health.isLoading ? (
           <span className="text-sm text-tg-text-muted">Checking...</span>
-        ) : health.data?.ok ? (
-          <>
-            <span className={`inline-block h-2.5 w-2.5 rounded-full ${
-              health.data.data.status === 'ok' ? 'bg-tg-success' : 'bg-tg-warning'
-            }`} />
-            <span className="text-sm font-medium text-tg-text-secondary">
-              {health.data.data.status === 'ok' ? 'System Healthy' : 'Degraded'}
-            </span>
-          </>
+        ) : health.data?.ok || health.data?.data ? (
+          <HealthStatus status={health.data.data.status} />
         ) : (
           <>
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-tg-danger" />
@@ -118,6 +111,28 @@ function StatusBar() {
 }
 
 // =============================================================================
+// Health Status — maps backend status to display
+// =============================================================================
+
+const statusConfig: Record<string, { label: string; color: string; dot: string }> = {
+  ok:                           { label: 'System Healthy',              color: 'text-tg-success',        dot: 'bg-tg-success' },
+  agent_unreachable:            { label: 'Agent Unreachable',           color: 'text-tg-warning',        dot: 'bg-tg-warning' },
+  ledger_unreachable:           { label: 'Ledger Unreachable',          color: 'text-tg-warning',        dot: 'bg-tg-warning' },
+  agent_and_ledger_unreachable: { label: 'Agent & Ledger Unreachable',  color: 'text-tg-danger',         dot: 'bg-tg-danger' },
+  nif_not_loaded:               { label: 'NIF Not Loaded',             color: 'text-tg-danger',         dot: 'bg-tg-danger' },
+};
+
+function HealthStatus({ status }: { status: string }) {
+  const cfg = statusConfig[status] || { label: status, color: 'text-tg-warning', dot: 'bg-tg-warning' };
+  return (
+    <>
+      <span className={`inline-block h-2.5 w-2.5 rounded-full ${cfg.dot}`} />
+      <span className={`text-sm font-medium ${cfg.color}`}>{cfg.label}</span>
+    </>
+  );
+}
+
+// =============================================================================
 // Current Date/Time — live-updating clock
 // =============================================================================
 
@@ -125,7 +140,7 @@ function CurrentDateTime() {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
+    const id = setInterval(() => setNow(new Date()), 1_000);
     return () => clearInterval(id);
   }, []);
 
@@ -133,7 +148,7 @@ function CurrentDateTime() {
     <div className="flex items-center gap-2">
       <Clock className="h-4 w-4 text-tg-text-muted" />
       <span className="text-sm font-medium text-tg-text-secondary">
-        {format(now, 'PP p')}
+        {format(now, 'PP pp')}
       </span>
     </div>
   );

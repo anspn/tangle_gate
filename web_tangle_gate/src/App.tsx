@@ -12,6 +12,7 @@ import IdentityPage from '@/pages/IdentityPage';
 import PortalPage from '@/pages/PortalPage';
 import SessionsPage from '@/pages/SessionsPage';
 import VerifyPage from '@/pages/VerifyPage';
+import AgentPage from '@/pages/AgentPage';
 import NotFound from '@/pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
             <Route element={<AppLayout />}>
               <Route path="/" element={<RequireAuth roles={['admin']}><DashboardPage /></RequireAuth>} />
               <Route path="/identity" element={<RequireAuth roles={['admin']}><IdentityPage /></RequireAuth>} />
+              <Route path="/agent" element={<RequireAuth roles={['admin']}><AgentPage /></RequireAuth>} />
               <Route path="/portal" element={<RequireAuth roles={['user']}><PortalPage /></RequireAuth>} />
               <Route path="/sessions" element={<RequireAuth roles={['admin', 'user']}><SessionsPage /></RequireAuth>} />
               <Route path="/verify" element={<RequireAuth roles={['admin', 'verifier']}><VerifyPage /></RequireAuth>} />

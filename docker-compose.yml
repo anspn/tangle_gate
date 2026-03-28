@@ -28,6 +28,9 @@ services:
       # Vault connection (internal Docker network)
       VAULT_ADDR: "http://vault:8200"
       VAULT_TOKEN: "${VAULT_ROOT_TOKEN}"
+      # Agent microservice (internal Docker network)
+      AGENT_URL: "http://agent:8800"
+      AGENT_API_KEY: "${AGENT_API_KEY:?Set AGENT_API_KEY in .env}"
     networks:
       - tangle_gate_net
     dns: 1.1.1.1
@@ -126,6 +129,36 @@ services:
     ports:
       - "${TTYD_PORT:-7681}:7681"
     restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # TangleGate Agent — Credential verification & session termination
+  # ---------------------------------------------------------------------------
+  agent:
+    build:
+      context: ./tangle_gate_agent
+      dockerfile: Dockerfile
+    container_name: tangle_gate_agent
+    env_file: .env
+    environment:
+      TANGLE_GATE_WS_URL: "ws://app:4000/ws/agent"
+      AGENT_API_KEY: "${AGENT_API_KEY:?Set AGENT_API_KEY in .env}"
+      IOTA_NODE_URL: "${IOTA_NODE_URL:-https://api.testnet.iota.cafe}"
+      PORT: "8800"
+    networks:
+      - tangle_gate_net
+    dns: 1.1.1.1
+    ports:
+      - "${AGENT_PORT:-8800}:8800"
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8800/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
 volumes:
   session_data:

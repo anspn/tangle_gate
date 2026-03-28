@@ -27,9 +27,9 @@ defmodule TangleGate.Web.API.AuthHandler do
 
   use Plug.Router
 
+  alias TangleGate.Agent.Client, as: AgentClient
   alias TangleGate.Credential.ChallengeCache
   alias TangleGate.Credential.Server, as: CredServer
-  alias TangleGate.Credential.Verifier
   alias TangleGate.Store.CredentialStore
   alias TangleGate.Web.API.Helpers
   alias TangleGate.Web.Auth
@@ -255,7 +255,7 @@ defmodule TangleGate.Web.API.AuthHandler do
         node_url = Application.get_env(:tangle_gate, :node_url, "https://api.testnet.iota.cafe")
         identity_pkg_id = Application.get_env(:tangle_gate, :identity_pkg_id, "")
 
-        case Verifier.resolve_did_document(holder_did, node_url, identity_pkg_id) do
+        case AgentClient.resolve_did_document(holder_did, node_url, identity_pkg_id) do
           {:ok, holder_doc_json} ->
             verify_and_authenticate(
               conn,
@@ -264,6 +264,12 @@ defmodule TangleGate.Web.API.AuthHandler do
               holder_did,
               holder_doc_json
             )
+
+          {:error, :agent_unavailable} ->
+            Helpers.json(conn, 503, %{
+              error: "agent_unavailable",
+              message: "Verification agent is unreachable. Try again later."
+            })
 
           {:error, reason} ->
             Helpers.json(conn, 422, %{
@@ -294,8 +300,8 @@ defmodule TangleGate.Web.API.AuthHandler do
             {:error, _} -> "[#{issuer_doc}]"
           end
 
-        # 4. Verify the VP using the independent Verifier
-        case Verifier.verify_presentation(
+        # 4. Verify the VP using the Agent verification service
+        case AgentClient.verify_presentation(
                presentation_jwt,
                holder_doc_json,
                issuer_docs_json,
@@ -345,6 +351,12 @@ defmodule TangleGate.Web.API.AuthHandler do
               message: "Verifiable Presentation is not valid"
             })
 
+          {:error, :agent_unavailable} ->
+            Helpers.json(conn, 503, %{
+              error: "agent_unavailable",
+              message: "Verification agent is unreachable. Try again later."
+            })
+
           {:error, reason} ->
             Helpers.json(conn, 401, %{
               error: "verification_failed",
@@ -358,7 +370,7 @@ defmodule TangleGate.Web.API.AuthHandler do
     # Verify the first credential JWT against the server's issuer DID document
     case Map.get(vp_result, "credentials", []) do
       [first_cred_jwt | _] ->
-        case Verifier.verify_credential(first_cred_jwt, issuer_doc) do
+        case AgentClient.verify_credential(first_cred_jwt, issuer_doc) do
           {:ok, %{"claims" => claims_json}} when is_binary(claims_json) ->
             case Jason.decode(claims_json) do
               {:ok, %{"credentialSubject" => claims}} when is_map(claims) -> claims

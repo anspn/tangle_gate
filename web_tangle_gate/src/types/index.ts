@@ -178,9 +178,27 @@ export interface HashResponse {
 // Health
 // ============================================================================
 export interface HealthResponse {
-  status: 'ok' | 'degraded';
+  status: string;
   nif_loaded: boolean;
+  agent_reachable: boolean;
+  ledger_reachable: boolean;
   timestamp: string;
+}
+
+// ============================================================================
+// Agent
+// ============================================================================
+export interface AgentStatus {
+  agent_reachable: boolean;
+  ws_connected: boolean;
+  ws_agent_count: number;
+  timestamp: string;
+}
+
+export interface AgentConfig {
+  url: string;
+  api_key: string;
+  timeout: number;
 }
 
 // ============================================================================

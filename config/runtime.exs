@@ -59,6 +59,12 @@ if config_env() == :prod do
     mount: env.("VAULT_MOUNT", "secret"),
     secret_path: env.("VAULT_SECRET_PATH", "tangle_gate")
 
+  # --- Agent microservice ---
+  config :tangle_gate, TangleGate.Agent.Client,
+    url: env.("AGENT_URL", "http://localhost:8800"),
+    api_key: env.("AGENT_API_KEY", ""),
+    timeout: String.to_integer(env.("AGENT_TIMEOUT", "30000"))
+
   # --- JWT Auth ---
   secret =
     System.get_env("SECRET_KEY_BASE") ||

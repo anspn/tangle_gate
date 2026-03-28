@@ -46,6 +46,12 @@ config :tangle_gate, TangleGate.Vault.Client,
   mount: "secret",
   secret_path: "tangle_gate"
 
+# Agent microservice — credential verification & session termination
+config :tangle_gate, TangleGate.Agent.Client,
+  url: "http://localhost:8800",
+  api_key: "dev-agent-key",
+  timeout: 30_000
+
 # Joken default signer (not used — we configure our own in Web.Auth)
 config :joken, default_signer: nil
 

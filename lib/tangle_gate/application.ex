@@ -63,7 +63,10 @@ defmodule TangleGate.Application do
           {TangleGate.Notarization.Supervisor, []},
 
           # 6. Session Recording Supervisor
-          {TangleGate.Session.Supervisor, []}
+          {TangleGate.Session.Supervisor, []},
+
+          # 7. Agent WebSocket Registry (tracks connected agents)
+          TangleGate.Web.WS.AgentRegistry
         ] ++ web_children()
 
     # rest_for_one: if NIF.Loader crashes, restart Identity and Notarization supervisors

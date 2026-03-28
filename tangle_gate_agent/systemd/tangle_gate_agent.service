@@ -1,0 +1,43 @@
+[Unit]
+Description=TangleGate Agent — Credential Verifier & Session Manager
+Documentation=https://github.com/anspn/iota_service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=tangle_agent
+Group=tangle_agent
+
+# Grant CAP_KILL so the agent can send signals to user processes without root.
+# This is the minimum privilege needed for signal-based session termination.
+AmbientCapabilities=CAP_KILL
+
+WorkingDirectory=/opt/tangle_gate_agent
+ExecStart=/opt/tangle_gate_agent/bin/tangle_gate_agent start
+ExecStop=/opt/tangle_gate_agent/bin/tangle_gate_agent stop
+ExecReload=/opt/tangle_gate_agent/bin/tangle_gate_agent restart
+
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Environment
+EnvironmentFile=/etc/tangle_gate_agent/env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/tangle_gate_agent
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tangle_gate_agent
+
+[Install]
+WantedBy=multi-user.target

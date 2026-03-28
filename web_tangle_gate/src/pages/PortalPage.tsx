@@ -100,8 +100,9 @@ function VPCreationCard({ onSessionStarted }: { onSessionStarted: (sessionId: st
       // Step 1: Create VP
       const vpRes = await sessionApi.createVP({ credential_jwt: credentialJwt, private_key_jwk: privateKey });
       if (!vpRes.ok) {
-        if (vpRes.status === 422) setError('No DID assigned to your account. Contact admin.');
-        else if (vpRes.status === 403) setError('Not authorized for terminal access. Contact admin.');
+        if (vpRes.status === 503) setError((vpRes.data as any).message || 'Verification agent is unreachable. Try again later.');
+        else if (vpRes.status === 422) setError((vpRes.data as any).message || 'No DID assigned to your account. Contact admin.');
+        else if (vpRes.status === 403) setError((vpRes.data as any).message || 'Not authorized for terminal access. Contact admin.');
         else setError((vpRes.data as any).message || 'Failed to create VP');
         return;
       }
@@ -112,7 +113,8 @@ function VPCreationCard({ onSessionStarted }: { onSessionStarted: (sessionId: st
       if (sessionRes.ok) {
         onSessionStarted(sessionRes.data.session_id, holder_did);
       } else {
-        setError((sessionRes.data as any).message || 'Failed to start session');
+        if (sessionRes.status === 503) setError((sessionRes.data as any).message || 'Verification agent is unreachable. Try again later.');
+        else setError((sessionRes.data as any).message || 'Failed to start session');
       }
     } catch {
       setError('Connection failed');

@@ -392,11 +392,11 @@ defmodule TangleGate.Credential.Server do
     start_time = System.monotonic_time()
 
     result =
-      with {:ok, json} <- call_nif(:verify_credential, [credential_jwt, issuer_doc_json]),
-           {:ok, parsed} <- Jason.decode(json) do
-        emit_telemetry(:verify_credential, start_time, %{success: true})
-        {:ok, parsed}
-      else
+      case TangleGate.Agent.Client.verify_credential(credential_jwt, issuer_doc_json) do
+        {:ok, parsed} ->
+          emit_telemetry(:verify_credential, start_time, %{success: true})
+          {:ok, parsed}
+
         {:error, reason} = error ->
           emit_telemetry(:verify_credential, start_time, %{success: false})
           Logger.warning("Credential verification failed: #{inspect(reason)}")
@@ -475,17 +475,16 @@ defmodule TangleGate.Credential.Server do
     start_time = System.monotonic_time()
 
     result =
-      with {:ok, json} <-
-             call_nif(:verify_presentation, [
-               presentation_jwt,
-               holder_doc_json,
-               issuer_docs_json,
-               challenge
-             ]),
-           {:ok, parsed} <- Jason.decode(json) do
-        emit_telemetry(:verify_presentation, start_time, %{success: true})
-        {:ok, parsed}
-      else
+      case TangleGate.Agent.Client.verify_presentation(
+             presentation_jwt,
+             holder_doc_json,
+             issuer_docs_json,
+             challenge
+           ) do
+        {:ok, parsed} ->
+          emit_telemetry(:verify_presentation, start_time, %{success: true})
+          {:ok, parsed}
+
         {:error, reason} = error ->
           emit_telemetry(:verify_presentation, start_time, %{success: false})
           Logger.warning("Presentation verification failed: #{inspect(reason)}")

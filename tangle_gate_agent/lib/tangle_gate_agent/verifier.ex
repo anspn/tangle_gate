@@ -1,15 +1,12 @@
-defmodule TangleGate.Credential.Verifier do
+defmodule TangleGateAgent.Verifier do
   @moduledoc """
   Self-contained Verifiable Credential (VC) and Verifiable Presentation (VP) verifier.
 
-  This module is intentionally **independent** from the rest of the application.
-  It has no dependencies on GenServers, OTP supervision, Application config,
+  This module is the core of the TangleGate Agent microservice. It performs
+  cryptographic verification of VCs and VPs using IOTA Identity NIFs with
+  no dependencies on GenServers, OTP supervision, Application config,
   ETS caches, or databases. Every input is passed explicitly as a function
   argument.
-
-  This design allows the verifier to be extracted into a standalone agent or
-  sidecar process in the future, running alongside a backend service (e.g., ttyd)
-  without requiring the full TangleGate application.
 
   ## Dependencies
 
@@ -17,9 +14,6 @@ defmodule TangleGate.Credential.Verifier do
   - `:iota_credential_nif` — Erlang NIF for cryptographic verification
   - `:iota_did_nif` — Erlang NIF for DID resolution (optional, for on-chain lookups)
   - `Jason` — JSON encoding/decoding
-
-  ## TODO verify that this module is truly self-contained and has no hidden dependencies on
-  ## application state or GenServers. Also verify if it can connect with iota testnet
 
   ## Usage
 
@@ -46,8 +40,6 @@ defmodule TangleGate.Credential.Verifier do
 
   @doc """
   Verify a Verifiable Credential JWT against the issuer's DID document.
-
-  All inputs are passed explicitly — no config or state is read.
 
   ## Parameters
   - `credential_jwt` — The VC JWT string to verify
@@ -76,8 +68,6 @@ defmodule TangleGate.Credential.Verifier do
 
   Validates the VP signature against the holder's DID document, checks the
   challenge nonce, and validates each contained VC against the provided issuer docs.
-
-  All inputs are passed explicitly — no config or state is read.
 
   ## Parameters
   - `presentation_jwt` — The VP JWT string
@@ -112,17 +102,14 @@ defmodule TangleGate.Credential.Verifier do
   Resolves the holder's DID and each issuer's DID from the IOTA ledger,
   then verifies the VP and all contained VCs.
 
-  This is a convenience function for verifiers that don't already have
-  the DID documents cached. It performs network calls to the IOTA node.
-
   ## Parameters
   - `presentation_jwt` — The VP JWT string
   - `challenge` — The expected challenge nonce ("" to skip)
   - `opts` — Options:
     - `:node_url` — (required) IOTA node URL
     - `:identity_pkg_id` — Identity package ObjectID ("" for auto-discovery)
-    - `:holder_did` — Holder's DID (extracted from JWT if not provided)
-    - `:issuer_dids` — List of issuer DIDs (extracted from VCs if not provided)
+    - `:holder_did` — Holder's DID (required)
+    - `:issuer_dids` — List of issuer DIDs (required)
 
   ## Returns
   - `{:ok, result}` with verification result plus resolved documents
@@ -135,9 +122,9 @@ defmodule TangleGate.Credential.Verifier do
     node_url = Keyword.fetch!(opts, :node_url)
     identity_pkg_id = Keyword.get(opts, :identity_pkg_id, "")
 
-    with {:ok, holder_did} <- extract_holder_did(presentation_jwt, opts),
+    with {:ok, holder_did} <- extract_holder_did(opts),
          {:ok, holder_doc_json} <- resolve_did_document(holder_did, node_url, identity_pkg_id),
-         {:ok, issuer_dids} <- extract_issuer_dids(presentation_jwt, holder_doc_json, opts),
+         {:ok, issuer_dids} <- extract_issuer_dids(opts),
          {:ok, issuer_docs} <- resolve_issuer_documents(issuer_dids, node_url, identity_pkg_id),
          issuer_docs_json <- Jason.encode!(issuer_docs),
          {:ok, result} <-
@@ -166,7 +153,6 @@ defmodule TangleGate.Credential.Verifier do
       when is_binary(did) and is_binary(node_url) do
     with {:ok, json} <- call_nif(@did_nif, :resolve_did, [did, node_url, identity_pkg_id]),
          {:ok, parsed} <- Jason.decode(json) do
-      # Return the document JSON string (not the wrapper)
       case parsed["document"] do
         doc when is_binary(doc) -> {:ok, doc}
         doc when is_map(doc) -> {:ok, Jason.encode!(doc)}
@@ -176,10 +162,10 @@ defmodule TangleGate.Credential.Verifier do
   end
 
   # ============================================================================
-  # Private — JWT parsing helpers (no crypto, just base64 decode)
+  # Private helpers
   # ============================================================================
 
-  defp extract_holder_did(_presentation_jwt, opts) do
+  defp extract_holder_did(opts) do
     case Keyword.get(opts, :holder_did) do
       did when is_binary(did) and did != "" ->
         {:ok, did}
@@ -189,7 +175,7 @@ defmodule TangleGate.Credential.Verifier do
     end
   end
 
-  defp extract_issuer_dids(_presentation_jwt, _holder_doc_json, opts) do
+  defp extract_issuer_dids(opts) do
     case Keyword.get(opts, :issuer_dids) do
       dids when is_list(dids) and length(dids) > 0 ->
         {:ok, dids}
@@ -219,10 +205,6 @@ defmodule TangleGate.Credential.Verifier do
       error -> error
     end
   end
-
-  # ============================================================================
-  # NIF calling — direct, no GenServer
-  # ============================================================================
 
   defp call_nif(module, function, args) do
     case apply(module, function, args) do

@@ -4,6 +4,7 @@ import type {
   AssignDidResponse, AuthorizeResponse, Session, SessionStats,
   CreateVPForSessionRequest, CreateVPForSessionResponse, StartSessionRequest,
   OnChainNotarization, HashResponse, HealthResponse, ServerDidInfo, DashboardStats,
+  AgentStatus, AgentConfig,
 } from '@/types';
 
 const API_BASE = '/api';
@@ -98,6 +99,13 @@ export const credentialApi = {
 
 export const dashboardApi = {
   stats: () => api<DashboardStats>('GET', '/dashboard/stats'),
+};
+
+export const agentApi = {
+  status: () => api<AgentStatus>('GET', '/agent/status'),
+  getConfig: () => api<AgentConfig>('GET', '/agent/config'),
+  updateConfig: (config: { url?: string; api_key?: string; timeout?: number }) =>
+    api<AgentConfig & { message: string }>('POST', '/agent/config', config),
 };
 
 export async function downloadSession(sessionId: string): Promise<void> {

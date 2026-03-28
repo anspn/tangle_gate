@@ -60,10 +60,10 @@ function SessionTable() {
         queryClient.invalidateQueries({ queryKey: ['sessions'] });
         queryClient.invalidateQueries({ queryKey: ['sessionStats'] });
       } else {
-        toast.error((res as { error?: string }).error || 'Failed to terminate session');
+        toast.error((res.data as any).message || 'Failed to terminate session');
       }
     },
-    onError: () => toast.error('Failed to terminate session'),
+    onError: () => toast.error('Connection failed'),
   });
 
   const retryMutation = useMutation({
@@ -74,10 +74,10 @@ function SessionTable() {
         queryClient.invalidateQueries({ queryKey: ['sessions'] });
         queryClient.invalidateQueries({ queryKey: ['sessionStats'] });
       } else {
-        toast.error((res as { error?: string }).error || 'Notarization failed');
+        toast.error((res.data as any).message || 'Notarization failed');
       }
     },
-    onError: () => toast.error('Notarization retry failed'),
+    onError: () => toast.error('Connection failed'),
   });
 
   const handleTerminate = (id: string) => {

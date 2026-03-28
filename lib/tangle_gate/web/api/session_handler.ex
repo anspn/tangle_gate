@@ -24,9 +24,9 @@ defmodule TangleGate.Web.API.SessionHandler do
 
   import Plug.Conn
 
+  alias TangleGate.Agent.Client, as: AgentClient
   alias TangleGate.Credential.ChallengeCache
   alias TangleGate.Credential.Server, as: CredServer
-  alias TangleGate.Credential.Verifier
   alias TangleGate.Session.Manager
   alias TangleGate.Web.API.Helpers
   alias TangleGate.Web.Auth
@@ -454,7 +454,7 @@ defmodule TangleGate.Web.API.SessionHandler do
     identity_pkg_id = Application.get_env(:tangle_gate, :identity_pkg_id, "")
 
     # 2. Resolve the user's DID document on-chain
-    case Verifier.resolve_did_document(db_user.did, node_url, identity_pkg_id) do
+    case AgentClient.resolve_did_document(db_user.did, node_url, identity_pkg_id) do
       {:ok, holder_doc_json} ->
         # 3. Generate challenge and create VP
         {:ok, challenge} = ChallengeCache.generate_challenge()
@@ -482,6 +482,12 @@ defmodule TangleGate.Web.API.SessionHandler do
               message: "Failed to create VP: #{inspect(reason)}"
             })
         end
+
+      {:error, :agent_unavailable} ->
+        Helpers.json(conn, 503, %{
+          error: "agent_unavailable",
+          message: "Verification agent is unreachable. Try again later."
+        })
 
       {:error, reason} ->
         Helpers.json(conn, 422, %{
@@ -544,7 +550,7 @@ defmodule TangleGate.Web.API.SessionHandler do
     identity_pkg_id = Application.get_env(:tangle_gate, :identity_pkg_id, "")
 
     # 3. Resolve the holder's DID document on-chain
-    case Verifier.resolve_did_document(holder_did, node_url, identity_pkg_id) do
+    case AgentClient.resolve_did_document(holder_did, node_url, identity_pkg_id) do
       {:ok, holder_doc_json} ->
         issuer_doc = server_identity.document
 
@@ -554,8 +560,8 @@ defmodule TangleGate.Web.API.SessionHandler do
             {:error, _} -> "[#{issuer_doc}]"
           end
 
-        # 4. Verify the VP using the independent Verifier
-        case Verifier.verify_presentation(
+        # 4. Verify the VP using the Agent verification service
+        case AgentClient.verify_presentation(
                presentation_jwt,
                holder_doc_json,
                issuer_docs_json,
@@ -586,12 +592,24 @@ defmodule TangleGate.Web.API.SessionHandler do
               message: "Verifiable Presentation is not valid"
             })
 
+          {:error, :agent_unavailable} ->
+            Helpers.json(conn, 503, %{
+              error: "agent_unavailable",
+              message: "Verification agent is unreachable. Try again later."
+            })
+
           {:error, reason} ->
             Helpers.json(conn, 401, %{
               error: "verification_failed",
               message: "VP verification failed: #{inspect(reason)}"
             })
         end
+
+      {:error, :agent_unavailable} ->
+        Helpers.json(conn, 503, %{
+          error: "agent_unavailable",
+          message: "Verification agent is unreachable. Try again later."
+        })
 
       {:error, reason} ->
         Helpers.json(conn, 422, %{
