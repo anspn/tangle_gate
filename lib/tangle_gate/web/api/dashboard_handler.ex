@@ -79,7 +79,8 @@ defmodule TangleGate.Web.API.DashboardHandler do
       total: CredentialStore.count_credentials(),
       active: CredentialStore.count_active_credentials(),
       revoked: CredentialStore.count_revoked_credentials(),
-      by_date: CredentialStore.credentials_by_date(30)
+      by_date: CredentialStore.credentials_by_date(30),
+      revoked_by_date: CredentialStore.revoked_credentials_by_date(30)
     }
 
     sessions_by_date = NotarizationStore.sessions_by_date(30)

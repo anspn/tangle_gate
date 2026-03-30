@@ -57,6 +57,7 @@ defmodule TangleGate.Web.API.AgentHandler do
 
       Helpers.json(conn, 200, %{
         url: Keyword.get(config, :url, "http://localhost:8800"),
+        ws_url: Keyword.get(config, :ws_url, "ws://localhost:4000/ws/agent"),
         api_key: mask_key(Keyword.get(config, :api_key, "")),
         timeout: Keyword.get(config, :timeout, 30_000)
       })
@@ -78,6 +79,7 @@ defmodule TangleGate.Web.API.AgentHandler do
       updated =
         current
         |> maybe_update(:url, params["url"])
+        |> maybe_update(:ws_url, params["ws_url"])
         |> maybe_update(:api_key, params["api_key"])
         |> maybe_update_int(:timeout, params["timeout"])
 
@@ -86,6 +88,7 @@ defmodule TangleGate.Web.API.AgentHandler do
       Helpers.json(conn, 200, %{
         message: "Agent client configuration updated",
         url: Keyword.get(updated, :url, "http://localhost:8800"),
+        ws_url: Keyword.get(updated, :ws_url, "ws://localhost:4000/ws/agent"),
         api_key: mask_key(Keyword.get(updated, :api_key, "")),
         timeout: Keyword.get(updated, :timeout, 30_000)
       })

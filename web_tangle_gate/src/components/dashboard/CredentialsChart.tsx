@@ -1,9 +1,10 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { format, parseISO } from 'date-fns';
 
 interface CredentialDataPoint {
   date: string;
-  count: number;
+  issued: number;
+  revoked: number;
 }
 
 export function CredentialsChart({ data }: { data: CredentialDataPoint[] }) {
@@ -18,12 +19,6 @@ export function CredentialsChart({ data }: { data: CredentialDataPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-        <defs>
-          <linearGradient id="gradCredentials" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(263, 70%, 58%)" stopOpacity={0.9} />
-            <stop offset="95%" stopColor="hsl(263, 70%, 58%)" stopOpacity={0.4} />
-          </linearGradient>
-        </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 20%)" />
         <XAxis
           dataKey="date"
@@ -47,14 +42,23 @@ export function CredentialsChart({ data }: { data: CredentialDataPoint[] }) {
           }}
           cursor={{ fill: 'hsl(0, 0%, 100%)', fillOpacity: 0.06 }}
           labelFormatter={(v) => format(parseISO(v as string), 'PPP')}
-          formatter={(value: number) => [value, 'Issued']}
+        />
+        <Legend
+          iconType="rect"
+          iconSize={10}
+          wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
         />
         <Bar
-          dataKey="count"
-          name="Credentials Issued"
-          fill="url(#gradCredentials)"
-          radius={[4, 4, 0, 0]}
-          maxBarSize={40}
+          dataKey="issued"
+          name="Issued"
+          fill="hsl(160, 95%, 41%)"
+          radius={[2, 2, 0, 0]}
+        />
+        <Bar
+          dataKey="revoked"
+          name="Revoked"
+          fill="hsl(0, 84%, 60%)"
+          radius={[2, 2, 0, 0]}
         />
       </BarChart>
     </ResponsiveContainer>

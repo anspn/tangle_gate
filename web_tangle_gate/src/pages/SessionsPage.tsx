@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { RefreshCw, Download, Square, RotateCcw } from 'lucide-react';
+import { RefreshCw, Download, Square, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { LoadingButton } from '@/components/shared/LoadingButton';
 import { PageHeader, StatCard, EmptyState } from '@/components/shared/UIElements';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { DIDDisplay, HashDisplay, CopyableField } from '@/components/shared/DataDisplay';
+import { DIDDisplay, CopyableField } from '@/components/shared/DataDisplay';
 import { sessionApi, downloadSession } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth';
 import type { Session } from '@/types';
@@ -51,6 +51,15 @@ function SessionTable() {
     queryFn: () => sessionApi.list(),
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 15;
+
+  const allSessions = data?.ok ? data.data.sessions : [];
+  const totalPages = Math.max(1, Math.ceil(allSessions.length / PAGE_SIZE));
+  const pagedSessions = useMemo(
+    () => allSessions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [allSessions, page],
+  );
 
   const terminateMutation = useMutation({
     mutationFn: (id: string) => sessionApi.terminate(id),
@@ -88,14 +97,27 @@ function SessionTable() {
     <div className="rounded-lg border border-border bg-card shadow-tg-sm">
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <h3 className="text-sm font-medium text-tg-text-muted">Session History</h3>
-        <Button variant="ghost" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}>
-          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {allSessions.length > PAGE_SIZE && (
+            <div className="flex items-center gap-1 text-xs text-tg-text-muted">
+              <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span>{page + 1} / {totalPages}</span>
+              <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
         <div className="p-5"><div className="h-32 animate-pulse rounded bg-tg-surface" /></div>
-      ) : !data?.ok || data.data.sessions.length === 0 ? (
+      ) : !data?.ok || allSessions.length === 0 ? (
         <EmptyState message="No sessions recorded yet." />
       ) : (
         <div className="overflow-auto">
@@ -112,7 +134,7 @@ function SessionTable() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {data.data.sessions.map((s) => (
+              {pagedSessions.map((s) => (
                 <tr key={s.session_id} className="hover:bg-tg-surface transition-colors">
                   <td className="px-5 py-3 font-mono text-xs text-tg-text-secondary">{s.session_id.slice(0, 12)}...</td>
                   <td className="px-5 py-3"><DIDDisplay did={s.did} /></td>
@@ -146,6 +168,9 @@ function SessionTable() {
                       </LoadingButton>
                     )}
                     <Button variant="ghost" size="sm" onClick={() => setSelectedId(s.session_id)}>View</Button>
+                    <Button variant="ghost" size="sm" onClick={() => downloadSession(s.session_id)}>
+                      <Download className="mr-1 h-3 w-3" /> Download
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -184,10 +209,10 @@ function SessionDetailDialog({ sessionId, onClose }: { sessionId: string; onClos
 
   return (
     <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="bg-card border-border max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="bg-card border-border max-w-[56rem] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <span className="font-mono text-sm">{sessionId}</span>
+            <span className="font-mono text-sm truncate">{sessionId}</span>
             {session && <StatusBadge status={session.status} />}
           </DialogTitle>
         </DialogHeader>
@@ -197,46 +222,49 @@ function SessionDetailDialog({ sessionId, onClose }: { sessionId: string; onClos
         ) : error || !session ? (
           <p className="text-sm text-tg-danger">Failed to load session details.</p>
         ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="space-y-4 min-w-0">
+            {/* Started / Ended */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <span className="text-xs text-tg-text-muted">DID</span>
-                <div className="mt-1"><DIDDisplay did={session.did} /></div>
+                <span className="text-sm font-medium text-tg-text-muted">Started</span>
+                <p className="mt-1 text-sm">{format(new Date(session.started_at), 'PPpp')}</p>
               </div>
               <div>
-                <span className="text-xs text-tg-text-muted">Started</span>
-                <p className="mt-1 text-xs">{format(new Date(session.started_at), 'PPpp')}</p>
-              </div>
-              <div>
-                <span className="text-xs text-tg-text-muted">Ended</span>
-                <p className="mt-1 text-xs">{session.ended_at ? format(new Date(session.ended_at), 'PPpp') : '—'}</p>
+                <span className="text-sm font-medium text-tg-text-muted">Ended</span>
+                <p className="mt-1 text-sm">{session.ended_at ? format(new Date(session.ended_at), 'PPpp') : '—'}</p>
               </div>
             </div>
 
+            {/* DID */}
+            <CopyableField value={session.did} label="DID" />
+
+            {/* Notarization Hash */}
             {session.notarization_hash && (
-              <div>
-                <span className="text-xs text-tg-text-muted">Notarization Hash</span>
-                <div className="mt-1"><HashDisplay hash={session.notarization_hash} /></div>
-              </div>
+              <CopyableField value={session.notarization_hash} label="Notarization Hash" />
             )}
+
+            {/* On-Chain ID */}
             {session.on_chain_id && (
               <CopyableField value={session.on_chain_id} label="On-Chain ID" />
             )}
+
+            {/* Error */}
             {session.error && (
               <div>
-                <span className="text-xs text-tg-text-muted">Error</span>
-                <p className="mt-1 text-xs text-tg-danger">{session.error}</p>
+                <span className="text-sm font-medium text-tg-text-muted">Error</span>
+                <p className="mt-1 text-sm text-tg-danger">{session.error}</p>
               </div>
             )}
 
+            {/* Command History */}
             {session.commands && session.commands.length > 0 && (
-              <div>
-                <span className="text-xs text-tg-text-muted">Command History ({session.commands.length})</span>
-                <pre className="mt-1 max-h-72 overflow-auto rounded bg-tg-surface p-3 font-mono text-xs text-tg-text-secondary">
-                  {session.commands.map((c, i) => (
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-tg-text-muted">Command History ({session.commands.length})</span>
+                <div className="mt-1 max-h-72 overflow-y-auto overflow-x-auto rounded bg-tg-surface p-3">
+                  <pre className="font-mono text-xs text-tg-text-secondary whitespace-pre w-max">{session.commands.map((c) => (
                     `${c.timestamp ? `[${c.timestamp}] ` : ''}${c.command}\n`
-                  )).join('')}
-                </pre>
+                  )).join('')}</pre>
+                </div>
               </div>
             )}
           </div>

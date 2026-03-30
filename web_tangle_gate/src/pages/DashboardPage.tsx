@@ -18,7 +18,7 @@ function fillActivityDates(
   logins: Array<{ date: string; user_logins: number; verifier_logins: number }>,
 ): Array<{ date: string; notarized: number; user_logins: number; verifier_logins: number }> {
   const today = new Date();
-  const start = subDays(today, 29);
+  const start = subDays(today, 14);
   const allDays = eachDayOfInterval({ start, end: today }).map((d) => format(d, 'yyyy-MM-dd'));
   const sessMap = new Map(sessions.map((d) => [d.date, d]));
   const loginMap = new Map(logins.map((d) => [d.date, d]));
@@ -31,13 +31,19 @@ function fillActivityDates(
 }
 
 function fillCredentialDates(
-  data: Array<{ date: string; count: number }>,
-): typeof data {
+  issued: Array<{ date: string; count: number }>,
+  revoked: Array<{ date: string; count: number }>,
+): Array<{ date: string; issued: number; revoked: number }> {
   const today = new Date();
-  const start = subDays(today, 29);
+  const start = subDays(today, 14);
   const allDays = eachDayOfInterval({ start, end: today }).map((d) => format(d, 'yyyy-MM-dd'));
-  const map = new Map(data.map((d) => [d.date, d]));
-  return allDays.map((date) => map.get(date) ?? { date, count: 0 });
+  const issuedMap = new Map(issued.map((d) => [d.date, d.count]));
+  const revokedMap = new Map(revoked.map((d) => [d.date, d.count]));
+  return allDays.map((date) => ({
+    date,
+    issued: issuedMap.get(date) ?? 0,
+    revoked: revokedMap.get(date) ?? 0,
+  }));
 }
 
 export default function DashboardPage() {
@@ -329,7 +335,10 @@ function ChartsSection() {
     [data],
   );
   const credentialChartData = useMemo(
-    () => fillCredentialDates(data?.ok ? data.data.credentials.by_date : []),
+    () => fillCredentialDates(
+      data?.ok ? data.data.credentials.by_date : [],
+      data?.ok ? data.data.credentials.revoked_by_date : [],
+    ),
     [data],
   );
 
@@ -340,7 +349,7 @@ function ChartsSection() {
         <div className="flex items-center gap-2.5 mb-4">
           <TrendingUp className="h-5 w-5 text-tg-text-muted" />
           <h3 className="text-base font-medium text-tg-text-muted">Activity</h3>
-          <span className="text-xs text-tg-text-muted ml-auto">Last 30 days</span>
+          <span className="text-xs text-tg-text-muted ml-auto">Last 15 days</span>
         </div>
         {isLoading ? (
           <div className="h-[280px] animate-pulse rounded bg-tg-surface" />
@@ -349,12 +358,12 @@ function ChartsSection() {
         )}
       </div>
 
-      {/* Credentials Issued chart */}
+      {/* Credentials chart */}
       <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
         <div className="flex items-center gap-2.5 mb-4">
           <BarChart3 className="h-5 w-5 text-tg-text-muted" />
-          <h3 className="text-base font-medium text-tg-text-muted">Credentials Issued</h3>
-          <span className="text-xs text-tg-text-muted ml-auto">Last 30 days</span>
+          <h3 className="text-base font-medium text-tg-text-muted">Credentials</h3>
+          <span className="text-xs text-tg-text-muted ml-auto">Last 15 days</span>
         </div>
         {isLoading ? (
           <div className="h-[280px] animate-pulse rounded bg-tg-surface" />

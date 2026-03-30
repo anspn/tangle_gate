@@ -62,8 +62,18 @@ if config_env() == :prod do
   # --- Agent microservice ---
   config :tangle_gate, TangleGate.Agent.Client,
     url: env.("AGENT_URL", "http://localhost:8800"),
+    ws_url: env.("AGENT_WS_URL", "ws://localhost:4000/ws/agent"),
     api_key: env.("AGENT_API_KEY", ""),
     timeout: String.to_integer(env.("AGENT_TIMEOUT", "30000"))
+
+  # --- Email notifications ---
+  config :tangle_gate, TangleGate.Notification.Email,
+    enabled: env.("EMAIL_ENABLED", "false") == "true",
+    from: env.("EMAIL_FROM", "tangle_gate@tanglegate.dev"),
+    smtp_relay: env.("SMTP_RELAY", "localhost"),
+    smtp_port: String.to_integer(env.("SMTP_PORT", "25")),
+    smtp_username: env.("SMTP_USERNAME", ""),
+    smtp_password: env.("SMTP_PASSWORD", "")
 
   # --- JWT Auth ---
   secret =

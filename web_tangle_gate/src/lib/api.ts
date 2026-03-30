@@ -94,7 +94,7 @@ export const dashboardApi = {
 export const agentApi = {
   status: () => api<AgentStatus>('GET', '/agent/status'),
   getConfig: () => api<AgentConfig>('GET', '/agent/config'),
-  updateConfig: (config: { url?: string; api_key?: string; timeout?: number }) =>
+  updateConfig: (config: { url?: string; ws_url?: string; api_key?: string; timeout?: number }) =>
     api<AgentConfig & { message: string }>('POST', '/agent/config', config),
 };
 

@@ -25,6 +25,7 @@ and WebSocket.
 - **Graceful Degradation**: Main app continues operating when the agent is unavailable (verification fails gracefully)
 - **Agent Session Termination**: Agent terminates user sessions via `systemctl kill` (SIGHUP to session scope) + `loginctl terminate-session` for cleanup
 - **Docker Ready**: Multi-stage Dockerfile + Docker Compose with backend (systemd + logind + sshd + ttyd + agent), MongoDB, and Vault
+- **Email Notifications**: SMTP notifications for user lifecycle events (account creation, DID assignment, credential issuance)
 
 
 ## Quick Start

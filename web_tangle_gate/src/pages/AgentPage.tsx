@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingButton } from '@/components/shared/LoadingButton';
-import { InlineNotice, PageHeader } from '@/components/shared/UIElements';
+import { InlineNotice } from '@/components/shared/UIElements';
 import { agentApi } from '@/lib/api';
 import { Wifi, WifiOff, Settings, RefreshCw, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,13 @@ import { Button } from '@/components/ui/button';
 export default function AgentPage() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Agent Management" subtitle="Monitor and configure the verification agent" />
+      <div>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Agent Management</h1>
+          <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-600 ring-1 ring-amber-500/30">beta</span>
+        </div>
+        <p className="mt-1.5 text-base text-tg-text-secondary">Monitor and configure the verification agent</p>
+      </div>
       <AgentStatusCard />
       <AgentConfigCard />
     </div>
@@ -118,6 +124,7 @@ function AgentConfigCard() {
   });
 
   const [url, setUrl] = useState('');
+  const [wsUrl, setWsUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [timeout, setTimeout] = useState('');
   const [saving, setSaving] = useState(false);
@@ -127,6 +134,7 @@ function AgentConfigCard() {
   // Populate fields once data loads
   if (data?.ok && !initialized) {
     setUrl(data.data.url);
+    setWsUrl(data.data.ws_url);
     setApiKey('');
     setTimeout(String(data.data.timeout));
     setInitialized(true);
@@ -139,6 +147,7 @@ function AgentConfigCard() {
     try {
       const body: Record<string, string | number> = {};
       if (url.trim()) body.url = url.trim();
+      if (wsUrl.trim()) body.ws_url = wsUrl.trim();
       if (apiKey.trim()) body.api_key = apiKey.trim();
       if (timeout.trim()) body.timeout = parseInt(timeout.trim(), 10);
 
@@ -177,15 +186,24 @@ function AgentConfigCard() {
           <div className="h-32 animate-pulse rounded bg-tg-surface" />
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Agent URL</Label>
+                <Label>Agent HTTP URL</Label>
                 <Input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="http://localhost:8800"
                 />
                 <p className="text-xs text-tg-text-muted">HTTP endpoint of the agent</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Agent WebSocket URL</Label>
+                <Input
+                  value={wsUrl}
+                  onChange={(e) => setWsUrl(e.target.value)}
+                  placeholder="ws://localhost:4000/ws/agent"
+                />
+                <p className="text-xs text-tg-text-muted">WebSocket endpoint the agent connects to</p>
               </div>
               <div className="space-y-2">
                 <Label>API Key</Label>

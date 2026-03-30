@@ -275,6 +275,31 @@ defmodule TangleGate.Store.CredentialStore do
     end)
   end
 
+  @doc """
+  Count credentials revoked per day over the last `days_back` days.
+
+  Returns a list of `%{"date" => "2026-03-20", "count" => 2}` maps sorted ascending.
+  """
+  @spec revoked_credentials_by_date(non_neg_integer()) :: [map()]
+  def revoked_credentials_by_date(days_back \\ 30) do
+    cutoff = DateTime.add(DateTime.utc_now(), -days_back * 86_400, :second)
+
+    Repo.pool()
+    |> Mongo.aggregate(@credentials_collection, [
+      %{"$match" => %{"revoked" => true, "revoked_at" => %{"$gte" => cutoff}}},
+      %{
+        "$group" => %{
+          "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$revoked_at"}},
+          "count" => %{"$sum" => 1}
+        }
+      },
+      %{"$sort" => %{"_id" => 1}}
+    ])
+    |> Enum.map(fn %{"_id" => date, "count" => count} ->
+      %{"date" => date, "count" => count}
+    end)
+  end
+
   # ============================================================================
   # Private
   # ============================================================================

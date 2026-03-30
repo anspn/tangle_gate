@@ -50,7 +50,7 @@ export function SessionsChart({ data }: { data: ActivityDataPoint[] }) {
         />
         <Bar
           dataKey="notarized"
-          name="Notarized"
+          name="Notarized Sessions"
           fill="hsl(160, 95%, 41%)"
           radius={[2, 2, 0, 0]}
         />

@@ -31,6 +31,7 @@ defmodule TangleGate.Web.API.CredentialHandler do
 
   alias TangleGate.Credential.Server, as: CredServer
   alias TangleGate.Identity.Server, as: IdentityServer
+  alias TangleGate.Notification.Email, as: EmailNotification
   alias TangleGate.Store.UserStore
   alias TangleGate.Web.API.Helpers
   alias TangleGate.Web.Auth
@@ -353,6 +354,8 @@ defmodule TangleGate.Web.API.CredentialHandler do
          {:ok, password} <- require_param(params, "password"),
          role = params["role"] || "user",
          {:ok, user} <- UserStore.create_user(email, password, role) do
+      EmailNotification.user_created(email, role)
+
       Helpers.json(conn, 201, %{
         email: user.email,
         role: user.role,
@@ -441,6 +444,8 @@ defmodule TangleGate.Web.API.CredentialHandler do
                   {:error, _} -> private_key_jwk
                 end
 
+              EmailNotification.did_assigned(email, did)
+
               Helpers.json(conn, 200, %{
                 email: email,
                 did: did,
@@ -507,6 +512,8 @@ defmodule TangleGate.Web.API.CredentialHandler do
               {:ok, cred_result} ->
                 # Mark the user as authorized in MongoDB
                 :ok = UserStore.set_authorized(email, true)
+
+                EmailNotification.credential_issued(email, user.did)
 
                 Helpers.json(conn, 200, %{
                   email: email,

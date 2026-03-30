@@ -42,6 +42,9 @@ defmodule TangleGate.MixProject do
       # HTTP client
       {:req, "~> 0.5"},
 
+      # SMTP email client
+      {:gen_smtp, "~> 1.2"},
+
       # MongoDB driver
       {:mongodb_driver, "~> 1.4"},
 

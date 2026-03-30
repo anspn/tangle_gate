@@ -172,6 +172,7 @@ export interface AgentStatus {
 
 export interface AgentConfig {
   url: string;
+  ws_url: string;
   api_key: string;
   timeout: number;
 }
@@ -191,6 +192,7 @@ export interface DashboardStats {
     active: number;
     revoked: number;
     by_date: Array<{ date: string; count: number }>;
+    revoked_by_date: Array<{ date: string; count: number }>;
   };
   sessions_by_date: Array<{
     date: string;
