@@ -1,5 +1,5 @@
 import type {
-  LoginRequest, LoginResponse, ChallengeResponse, VPLoginRequest, VPLoginResponse,
+  LoginRequest, LoginResponse,
   CreateDidRequest, DidResponse, ApiError, UserInfo, CreateUserRequest,
   AssignDidResponse, AuthorizeResponse, Session, SessionStats,
   CreateVPForSessionRequest, CreateVPForSessionResponse, StartSessionRequest,
@@ -41,16 +41,6 @@ async function api<T>(
 
 export const authApi = {
   login: (req: LoginRequest) => api<LoginResponse>('POST', '/auth/login', req),
-  getChallenge: () => api<ChallengeResponse>('GET', '/auth/challenge'),
-  vpLogin: async (req: VPLoginRequest): Promise<ApiResponse<VPLoginResponse>> => {
-    const res = await fetch(`${API_BASE}/auth/present-with-credential`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req),
-    });
-    const data = await res.json();
-    return { status: res.status, data, ok: res.ok };
-  },
 };
 
 export const identityApi = {

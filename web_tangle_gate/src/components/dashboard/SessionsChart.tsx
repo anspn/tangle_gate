@@ -1,40 +1,25 @@
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { format, parseISO } from 'date-fns';
 
-interface SessionDataPoint {
+interface ActivityDataPoint {
   date: string;
-  total: number;
   notarized: number;
-  failed: number;
-  active: number;
+  user_logins: number;
+  verifier_logins: number;
 }
 
-export function SessionsChart({ data }: { data: SessionDataPoint[] }) {
+export function SessionsChart({ data }: { data: ActivityDataPoint[] }) {
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[280px]">
-        <p className="text-sm italic text-tg-text-muted">No session data available yet.</p>
+        <p className="text-sm italic text-tg-text-muted">No activity data available yet.</p>
       </div>
     );
   }
 
   return (
     <ResponsiveContainer width="100%" height={280}>
-      <AreaChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-        <defs>
-          <linearGradient id="gradNotarized" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(160, 95%, 41%)" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="hsl(160, 95%, 41%)" stopOpacity={0} />
-          </linearGradient>
-          <linearGradient id="gradFailed" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0} />
-          </linearGradient>
-          <linearGradient id="gradActive" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(207, 100%, 41%)" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="hsl(207, 100%, 41%)" stopOpacity={0} />
-          </linearGradient>
-        </defs>
+      <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 20%)" />
         <XAxis
           dataKey="date"
@@ -59,35 +44,29 @@ export function SessionsChart({ data }: { data: SessionDataPoint[] }) {
           labelFormatter={(v) => format(parseISO(v as string), 'PPP')}
         />
         <Legend
-          iconType="circle"
-          iconSize={8}
+          iconType="rect"
+          iconSize={10}
           wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
         />
-        <Area
-          type="monotone"
+        <Bar
           dataKey="notarized"
           name="Notarized"
-          stroke="hsl(160, 95%, 41%)"
-          fill="url(#gradNotarized)"
-          strokeWidth={2}
+          fill="hsl(160, 95%, 41%)"
+          radius={[2, 2, 0, 0]}
         />
-        <Area
-          type="monotone"
-          dataKey="failed"
-          name="Failed"
-          stroke="hsl(0, 84%, 60%)"
-          fill="url(#gradFailed)"
-          strokeWidth={2}
+        <Bar
+          dataKey="user_logins"
+          name="User Logins"
+          fill="hsl(207, 100%, 41%)"
+          radius={[2, 2, 0, 0]}
         />
-        <Area
-          type="monotone"
-          dataKey="active"
-          name="Active"
-          stroke="hsl(207, 100%, 41%)"
-          fill="url(#gradActive)"
-          strokeWidth={2}
+        <Bar
+          dataKey="verifier_logins"
+          name="Verifier Logins"
+          fill="hsl(45, 93%, 47%)"
+          radius={[2, 2, 0, 0]}
         />
-      </AreaChart>
+      </BarChart>
     </ResponsiveContainer>
   );
 }

@@ -83,11 +83,13 @@ defmodule TangleGate.Web.API.DashboardHandler do
     }
 
     sessions_by_date = NotarizationStore.sessions_by_date(30)
+    logins_by_date = UserStore.logins_by_date(30)
 
     Helpers.json(conn, 200, %{
       users: users,
       credentials: credentials,
-      sessions_by_date: sessions_by_date
+      sessions_by_date: sessions_by_date,
+      logins_by_date: logins_by_date
     })
   end
 

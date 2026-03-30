@@ -10,7 +10,7 @@ and WebSocket.
 - **DID Generation**: Create IOTA DIDs with Ed25519 verification methods
 - **Verifiable Credentials**: Issue and verify W3C Verifiable Credentials as signed JWTs
 - **Verifiable Presentations**: Create and verify W3C Verifiable Presentations with challenge/expiry
-- **DID-based 2FA**: Login with email/password + DID triggers credential issuance and revocation
+- **DID-based Login**: Login with email or DID as identifier + password
 - **User Management**: Admin can create dynamic users, assign DIDs, authorize/unauthorize, revoke DIDs on-chain, and delete users
 - **Credential Revocation**: Server-side revocation tracking in MongoDB (TODO: on-chain via revocation bitmaps)
 - **Notarization**: Timestamp and hash-anchor data for Tangle submission
@@ -91,7 +91,7 @@ Session termination sends SIGHUP to the logind session scope via `systemctl kill
 GET /api/dashboard/stats          — Aggregated dashboard statistics (admin-only)
 ```
 
-Returns user counts (total, by status, authorized, with DID), credential counts (total, active, revoked, issued per day over last 30 days), and session time-series data (total, notarized, failed, active per day over last 30 days).
+Returns user counts (total, by status, authorized, with DID), credential counts (total, active, revoked, issued per day over last 30 days), session time-series data (notarized per day over last 30 days), and login counts (user logins and verifier logins per day over last 30 days).
 
 ### Identity
 

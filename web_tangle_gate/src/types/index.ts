@@ -18,37 +18,12 @@ export interface User {
 export interface LoginRequest {
   email: string;
   password: string;
-  did?: string;
 }
 
 export interface LoginResponse {
   token: string;
   expires_at: string;
   user: User;
-  holder_did?: string;
-  message?: string;
-}
-
-export interface ChallengeResponse {
-  challenge: string;
-  expires_in_seconds: number;
-}
-
-export interface VPLoginRequest {
-  holder_doc_json: string;
-  credential_jwt: string;
-  challenge: string;
-  private_key_jwk: string;
-  fragment: string;
-}
-
-export interface VPLoginResponse {
-  token: string;
-  expires_at: string;
-  user: User;
-  holder_did: string;
-  credential_count: number;
-  auth_method: 'verifiable_presentation';
 }
 
 // ============================================================================
@@ -221,7 +196,10 @@ export interface DashboardStats {
     date: string;
     total: number;
     notarized: number;
-    failed: number;
-    active: number;
+  }>;
+  logins_by_date: Array<{
+    date: string;
+    user_logins: number;
+    verifier_logins: number;
   }>;
 }

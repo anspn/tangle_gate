@@ -10,6 +10,8 @@ defmodule TangleGate.Store.UserStore do
 
   - `users` — Dynamic users created by the admin at runtime.
     Fields: email, password_hash, salt, role, did, authorized, status, created_at, updated_at
+  - `login_events` — Login event log for dashboard analytics.
+    Fields: email, role, logged_in_at
 
   ## Password Hashing
 
@@ -21,6 +23,7 @@ defmodule TangleGate.Store.UserStore do
   require Logger
 
   @collection "users"
+  @login_events_collection "login_events"
   @hash_iterations 100_000
   @hash_length 32
 
@@ -242,7 +245,12 @@ defmodule TangleGate.Store.UserStore do
       [key: %{"did" => 1}, name: "did_index", sparse: true]
     ])
 
-    Logger.info("MongoDB indexes ensured for #{@collection}")
+    Mongo.create_indexes(Repo.pool(), @login_events_collection, [
+      [key: %{"logged_in_at" => -1}, name: "logged_in_at_desc"],
+      [key: %{"role" => 1, "logged_in_at" => -1}, name: "role_logged_in_at"]
+    ])
+
+    Logger.info("MongoDB indexes ensured for #{@collection} and #{@login_events_collection}")
     :ok
   end
 
@@ -291,6 +299,64 @@ defmodule TangleGate.Store.UserStore do
       "authorized" => false,
       "$or" => [%{"status" => "active"}, %{"status" => nil}]
     })
+  end
+
+  # ============================================================================
+  # Login Event Tracking
+  # ============================================================================
+
+  @doc """
+  Record a login event for dashboard analytics.
+  """
+  @spec record_login(String.t(), String.t()) :: :ok
+  def record_login(email, role) do
+    Mongo.insert_one(Repo.pool(), @login_events_collection, %{
+      "email" => email,
+      "role" => role,
+      "logged_in_at" => DateTime.utc_now()
+    })
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("Failed to record login event: #{inspect(e)}")
+      :ok
+  end
+
+  @doc """
+  Count logins per day over the last `days_back` days, grouped by role.
+
+  Returns a list of maps sorted by date ascending:
+
+      [%{"date" => "2026-03-20", "user_logins" => 5, "verifier_logins" => 2}]
+  """
+  @spec logins_by_date(non_neg_integer()) :: [map()]
+  def logins_by_date(days_back \\ 30) do
+    cutoff = DateTime.add(DateTime.utc_now(), -days_back * 86_400, :second)
+
+    Repo.pool()
+    |> Mongo.aggregate(@login_events_collection, [
+      %{"$match" => %{"logged_in_at" => %{"$gte" => cutoff}}},
+      %{
+        "$group" => %{
+          "_id" => %{"$dateToString" => %{"format" => "%Y-%m-%d", "date" => "$logged_in_at"}},
+          "user_logins" => %{
+            "$sum" => %{"$cond" => [%{"$eq" => ["$role", "user"]}, 1, 0]}
+          },
+          "verifier_logins" => %{
+            "$sum" => %{"$cond" => [%{"$eq" => ["$role", "verifier"]}, 1, 0]}
+          }
+        }
+      },
+      %{"$sort" => %{"_id" => 1}}
+    ])
+    |> Enum.map(fn %{"_id" => date} = entry ->
+      %{
+        "date" => date,
+        "user_logins" => entry["user_logins"] || 0,
+        "verifier_logins" => entry["verifier_logins"] || 0
+      }
+    end)
   end
 
   # ============================================================================

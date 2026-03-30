@@ -12,15 +12,22 @@ import {
   TrendingUp, UserCheck, ShieldOff, Clock,
 } from 'lucide-react';
 
-/** Fill missing dates with zero values so the chart shows every day in the range. */
-function fillSessionDates(
-  data: Array<{ date: string; total: number; notarized: number; failed: number; active: number }>,
-): typeof data {
+/** Fill missing dates and merge session + login data for the Activity chart. */
+function fillActivityDates(
+  sessions: Array<{ date: string; notarized: number }>,
+  logins: Array<{ date: string; user_logins: number; verifier_logins: number }>,
+): Array<{ date: string; notarized: number; user_logins: number; verifier_logins: number }> {
   const today = new Date();
   const start = subDays(today, 29);
   const allDays = eachDayOfInterval({ start, end: today }).map((d) => format(d, 'yyyy-MM-dd'));
-  const map = new Map(data.map((d) => [d.date, d]));
-  return allDays.map((date) => map.get(date) ?? { date, total: 0, notarized: 0, failed: 0, active: 0 });
+  const sessMap = new Map(sessions.map((d) => [d.date, d]));
+  const loginMap = new Map(logins.map((d) => [d.date, d]));
+  return allDays.map((date) => ({
+    date,
+    notarized: sessMap.get(date)?.notarized ?? 0,
+    user_logins: loginMap.get(date)?.user_logins ?? 0,
+    verifier_logins: loginMap.get(date)?.verifier_logins ?? 0,
+  }));
 }
 
 function fillCredentialDates(
@@ -314,8 +321,11 @@ function ChartsSection() {
     refetchInterval: 30000,
   });
 
-  const sessionChartData = useMemo(
-    () => fillSessionDates(data?.ok ? data.data.sessions_by_date : []),
+  const activityChartData = useMemo(
+    () => fillActivityDates(
+      data?.ok ? data.data.sessions_by_date : [],
+      data?.ok ? data.data.logins_by_date : [],
+    ),
     [data],
   );
   const credentialChartData = useMemo(
@@ -325,17 +335,17 @@ function ChartsSection() {
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      {/* Sessions Activity chart */}
+      {/* Activity chart */}
       <div className="rounded-lg border border-border bg-card p-5 shadow-tg-sm">
         <div className="flex items-center gap-2.5 mb-4">
           <TrendingUp className="h-5 w-5 text-tg-text-muted" />
-          <h3 className="text-base font-medium text-tg-text-muted">Sessions Activity</h3>
+          <h3 className="text-base font-medium text-tg-text-muted">Activity</h3>
           <span className="text-xs text-tg-text-muted ml-auto">Last 30 days</span>
         </div>
         {isLoading ? (
           <div className="h-[280px] animate-pulse rounded bg-tg-surface" />
         ) : (
-          <SessionsChart data={sessionChartData} />
+          <SessionsChart data={activityChartData} />
         )}
       </div>
 

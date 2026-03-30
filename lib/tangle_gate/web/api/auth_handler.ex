@@ -5,24 +5,19 @@ defmodule TangleGate.Web.API.AuthHandler do
   ## Login Flows
 
   1. **Email + Password** (`POST /login`) — Standard auth, returns JWT.
-     If the user provides a `did`, the server verifies the DID is assigned
-     to the user's account (ownership check) but does **not** issue a credential.
-     Credentials are issued separately via the admin Authorize workflow.
+     The `email` field accepts either an email address or a DID string.
+     When a DID is provided, the server looks up the user by DID and
+     authenticates with their stored email.
 
-  2. **VP-based** (`POST /present-with-credential`) — User submits their
-     DID document (with keys) + credential JWT + challenge. Server creates a VP,
-     verifies it, checks revocation status, and issues a JWT.
-
-  3. **Raw VP** (`POST /present`) — User submits a pre-built VP JWT +
+  2. **Raw VP** (`POST /present`) — User submits a pre-built VP JWT +
      challenge + holder DID. Server resolves the DID on-chain, verifies
      the VP, checks revocation, and issues a JWT.
 
   ## Endpoints
 
-  - `POST /api/auth/login`                    — Email/password login (optional DID ownership check)
-  - `GET  /api/auth/challenge`                — Get a challenge nonce for VP-based auth
-  - `POST /api/auth/present`                  — Authenticate with a pre-built VP JWT
-  - `POST /api/auth/present-with-credential`  — VP login from holder doc + credential
+  - `POST /api/auth/login`     — Email/password login (accepts email or DID as identifier)
+  - `GET  /api/auth/challenge`  — Get a challenge nonce for VP-based auth
+  - `POST /api/auth/present`    — Authenticate with a pre-built VP JWT
   """
 
   use Plug.Router
@@ -31,46 +26,29 @@ defmodule TangleGate.Web.API.AuthHandler do
   alias TangleGate.Credential.ChallengeCache
   alias TangleGate.Credential.Server, as: CredServer
   alias TangleGate.Store.CredentialStore
+  alias TangleGate.Store.UserStore
   alias TangleGate.Web.API.Helpers
   alias TangleGate.Web.Auth
 
   plug(:match)
   plug(:dispatch)
 
-  # POST /api/auth/login — Email/password login with optional DID-based 2FA
+  # POST /api/auth/login — Email/password login (accepts email or DID as identifier)
   post "/login" do
-    with {:ok, %{"email" => email, "password" => password}} <-
+    with {:ok, %{"email" => identifier, "password" => password}} <-
            Helpers.require_fields(conn.body_params, ["email", "password"]),
-         {:ok, user} <- Auth.authenticate(email, password),
+         {:ok, user} <- authenticate_by_identifier(identifier, password),
          {:ok, token, claims} <- Auth.generate_token(user) do
-      # Check if user is providing a DID for ownership verification
-      did = (conn.body_params || %{})["did"]
-
-      if did && did != "" do
-        # Verify DID is assigned to this user, but don't issue a credential
-        case verify_did_ownership(user, did) do
-          :ok ->
-            Helpers.json(conn, 200, %{
-              token: token,
-              expires_at: format_exp(claims["exp"]),
-              user: %{id: user.id, email: user.email, role: user.role},
-              holder_did: did,
-              message: "Login successful. DID ownership verified."
-            })
-
-          {:error, message} ->
-            Helpers.json(conn, 403, %{
-              error: "did_mismatch",
-              message: message
-            })
-        end
-      else
-        Helpers.json(conn, 200, %{
-          token: token,
-          expires_at: format_exp(claims["exp"]),
-          user: %{id: user.id, email: user.email, role: user.role}
-        })
+      # Record the login event for dashboard analytics
+      if Application.get_env(:tangle_gate, :start_repo, true) do
+        UserStore.record_login(user.email, to_string(user.role))
       end
+
+      Helpers.json(conn, 200, %{
+        token: token,
+        expires_at: format_exp(claims["exp"]),
+        user: %{id: user.id, email: user.email, role: user.role}
+      })
     else
       {:error, [:password]} ->
         Helpers.validation_error(conn, "Password is required")
@@ -138,95 +116,27 @@ defmodule TangleGate.Web.API.AuthHandler do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # POST /api/auth/present-with-credential — VP login from holder doc + credential
-  #
-  # Creates a VP server-side from the holder's DID document (with keys) and
-  # a credential JWT, then verifies the VP for authentication.
-  # This is for unauthenticated users who don't yet have a session JWT.
-  # ---------------------------------------------------------------------------
-  post "/present-with-credential" do
-    params = conn.body_params || %{}
-    holder_doc_json = params["holder_doc_json"]
-    credential_jwt = params["credential_jwt"]
-    challenge = params["challenge"]
-    private_key_jwk = params["private_key_jwk"]
-    fragment = params["fragment"]
-
-    cond do
-      is_nil(holder_doc_json) || holder_doc_json == "" ->
-        Helpers.json(conn, 400, %{
-          error: "missing_parameter",
-          message: "Required parameter missing: holder_doc_json"
-        })
-
-      is_nil(credential_jwt) || credential_jwt == "" ->
-        Helpers.json(conn, 400, %{
-          error: "missing_parameter",
-          message: "Required parameter missing: credential_jwt"
-        })
-
-      is_nil(challenge) || challenge == "" ->
-        Helpers.json(conn, 400, %{
-          error: "missing_parameter",
-          message: "Required parameter missing: challenge"
-        })
-
-      is_nil(private_key_jwk) || private_key_jwk == "" ->
-        Helpers.json(conn, 400, %{
-          error: "missing_parameter",
-          message: "Required parameter missing: private_key_jwk"
-        })
-
-      is_nil(fragment) || fragment == "" ->
-        Helpers.json(conn, 400, %{
-          error: "missing_parameter",
-          message: "Required parameter missing: fragment"
-        })
-
-      true ->
-        do_vp_login_with_credential(
-          conn,
-          holder_doc_json,
-          credential_jwt,
-          challenge,
-          private_key_jwk,
-          fragment
-        )
-    end
-  end
-
   match _ do
     Helpers.json(conn, 404, %{error: "not_found", message: "Auth route not found"})
   end
 
   # ===========================================================================
-  # Private — DID ownership verification
+  # Private — Identifier resolution (email or DID)
   # ===========================================================================
 
-  defp verify_did_ownership(user, did) do
-    # For static config users, accept any DID (no DID assignment in config)
-    # For dynamic users, the DID must match what's assigned to their account
-    if Application.get_env(:tangle_gate, :start_repo, true) do
-      case TangleGate.Store.UserStore.get_user_by_email(user.email) do
-        {:ok, db_user} ->
-          cond do
-            db_user.did == did ->
-              :ok
-
-            is_nil(db_user.did) ->
-              {:error, "No DID assigned to your account. Ask an admin to assign one."}
-
-            true ->
-              {:error, "DID does not match the one assigned to your account"}
-          end
-
-        :not_found ->
-          # Static config user — no DID assignment, accept any
-          :ok
+  defp authenticate_by_identifier(identifier, password) do
+    if String.starts_with?(identifier, "did:") do
+      # DID-based login: look up user by DID, then authenticate by email
+      if Application.get_env(:tangle_gate, :start_repo, true) do
+        case UserStore.get_user_by_did(identifier) do
+          {:ok, user} -> Auth.authenticate(user.email, password)
+          :not_found -> {:error, :invalid_credentials}
+        end
+      else
+        {:error, :invalid_credentials}
       end
     else
-      :ok
+      Auth.authenticate(identifier, password)
     end
   end
 
@@ -388,60 +298,6 @@ defmodule TangleGate.Web.API.AuthHandler do
   end
 
   # -- Helpers ---------------------------------------------------------------
-
-  defp do_vp_login_with_credential(
-         conn,
-         holder_doc_json,
-         credential_jwt,
-         challenge,
-         private_key_jwk,
-         fragment
-       ) do
-    # 1. Consume the challenge (single-use)
-    case ChallengeCache.consume_challenge(challenge) do
-      :not_found ->
-        Helpers.json(conn, 401, %{
-          error: "invalid_challenge",
-          message:
-            "Challenge not found or already used. Request a new one via GET /api/auth/challenge."
-        })
-
-      :expired ->
-        Helpers.json(conn, 401, %{
-          error: "challenge_expired",
-          message: "Challenge has expired. Request a new one via GET /api/auth/challenge."
-        })
-
-      :ok ->
-        # 2. Create VP from holder doc + credential using the holder's key
-        cred_jwts_json = Jason.encode!([credential_jwt])
-
-        case CredServer.create_presentation(
-               holder_doc_json,
-               cred_jwts_json,
-               challenge,
-               300,
-               private_key_jwk,
-               fragment
-             ) do
-          {:ok, %{"presentation_jwt" => presentation_jwt, "holder_did" => holder_did}} ->
-            # 3. Verify the VP cryptographically
-            verify_and_authenticate(
-              conn,
-              presentation_jwt,
-              challenge,
-              holder_did,
-              holder_doc_json
-            )
-
-          {:error, reason} ->
-            Helpers.json(conn, 422, %{
-              error: "presentation_failed",
-              message: "Failed to create VP: #{inspect(reason)}"
-            })
-        end
-    end
-  end
 
   defp credential_revoked_for_holder?(holder_did) do
     if Application.get_env(:tangle_gate, :start_repo, true) do
