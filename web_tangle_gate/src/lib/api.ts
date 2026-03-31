@@ -1,7 +1,7 @@
 import type {
   LoginRequest, LoginResponse,
   CreateDidRequest, DidResponse, ApiError, UserInfo, CreateUserRequest,
-  AssignDidResponse, AuthorizeResponse, Session, SessionStats,
+  AssignDidResponse, AuthorizeResponse, CredentialBundle, Session, SessionStats,
   CreateVPForSessionRequest, CreateVPForSessionResponse, StartSessionRequest,
   OnChainNotarization, HashResponse, HealthResponse, ServerDidInfo, DashboardStats,
   AgentStatus, AgentConfig,
@@ -59,6 +59,7 @@ export const userApi = {
   deleteUser: (email: string) => api<{ email: string; did: string; status: string; message: string }>('POST', `/credentials/users/${encodeURIComponent(email)}/delete`, {}),
   permanentDeleteUser: (email: string) => api<{ email: string; message: string }>('POST', `/credentials/users/${encodeURIComponent(email)}/permanent-delete`, {}),
   reactivateDid: (email: string) => api<AssignDidResponse>('POST', `/credentials/users/${encodeURIComponent(email)}/reactivate-did`, {}),
+  getCredentials: (email: string) => api<CredentialBundle>('GET', `/credentials/users/${encodeURIComponent(email)}/credentials`),
 };
 
 export const sessionApi = {

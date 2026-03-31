@@ -202,6 +202,14 @@ defmodule TangleGate.Web.API.CredentialHandler do
   end
 
   # ---------------------------------------------------------------------------
+  # GET /api/credentials/users/:email/credentials — Download credential bundle (admin)
+  # ---------------------------------------------------------------------------
+  get "/users/:email/credentials" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_get_user_credentials(conn, conn.params["email"])
+  end
+
+  # ---------------------------------------------------------------------------
   # POST /api/credentials/users/:email/revoke-did — Revoke DID on-chain (admin)
   # ---------------------------------------------------------------------------
   post "/users/:email/revoke-did" do
@@ -489,6 +497,54 @@ defmodule TangleGate.Web.API.CredentialHandler do
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, _key, ""), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp do_get_user_credentials(conn, email) do
+    alias TangleGate.Store.CredentialStore
+
+    case UserStore.get_user_by_email(email) do
+      :not_found ->
+        Helpers.json(conn, 404, %{error: "not_found", message: "User not found: #{email}"})
+
+      {:ok, user} ->
+        cond do
+          user.status == "did_revoked" || user.status == "deleted" || is_nil(user.did) ->
+            Helpers.json(conn, 422, %{
+              error: "no_credentials",
+              message: "User has no active DID."
+            })
+
+          true ->
+            bundle = %{email: email, did: user.did}
+
+            bundle =
+              if user.private_key_jwk do
+                case Jason.decode(user.private_key_jwk) do
+                  {:ok, jwk} -> Map.put(bundle, :private_key_jwk, jwk)
+                  _ -> Map.put(bundle, :private_key_jwk, user.private_key_jwk)
+                end
+              else
+                bundle
+              end
+
+            bundle =
+              if user.verification_method_fragment,
+                do: Map.put(bundle, :verification_method_fragment, user.verification_method_fragment),
+                else: bundle
+
+            bundle =
+              if user.authorized do
+                case CredentialStore.get_active_credential_jwt(user.did) do
+                  {:ok, jwt} -> Map.put(bundle, :credential_jwt, jwt)
+                  :not_found -> bundle
+                end
+              else
+                bundle
+              end
+
+            Helpers.json(conn, 200, bundle)
+        end
+    end
+  end
 
   # ===========================================================================
   # Private — authorize / unauthorize

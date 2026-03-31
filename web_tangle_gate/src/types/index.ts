@@ -61,6 +61,14 @@ export interface AuthorizeResponse {
   message: string;
 }
 
+export interface CredentialBundle {
+  email: string;
+  did: string;
+  private_key_jwk?: Record<string, string>;
+  verification_method_fragment?: string;
+  credential_jwt?: string;
+}
+
 export interface CreateDidRequest {
   publish?: boolean;
   network?: 'iota' | 'smr' | 'rms' | 'atoi';

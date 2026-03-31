@@ -631,7 +631,8 @@ defmodule TangleGate.Credential.Server do
         issuer_did: parsed["issuer_did"],
         holder_did: holder_did,
         credential_type: credential_type,
-        claims_summary: summarize_claims(claims)
+        claims_summary: summarize_claims(claims),
+        credential_jwt: parsed["credential_jwt"]
       }
 
       TangleGate.Store.CredentialStore.record_issued_credential(meta)

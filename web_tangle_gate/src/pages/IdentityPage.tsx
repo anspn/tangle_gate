@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,7 +13,24 @@ import { DIDDisplay, SensitiveDisplay } from '@/components/shared/DataDisplay';
 import { JsonViewer } from '@/components/shared/JsonViewer';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { identityApi, userApi } from '@/lib/api';
-import type { UserInfo, AssignDidResponse, AuthorizeResponse } from '@/types';
+import type { UserInfo, AssignDidResponse, AuthorizeResponse, CredentialBundle } from '@/types';
+
+function downloadCredentialBundle(bundle: CredentialBundle) {
+  const payload: Record<string, unknown> = { email: bundle.email };
+  if (bundle.did) payload.did = bundle.did;
+  if (bundle.private_key_jwk) payload.private_key_jwk = bundle.private_key_jwk;
+  if (bundle.verification_method_fragment) payload.verification_method_fragment = bundle.verification_method_fragment;
+  if (bundle.credential_jwt) payload.credential_jwt = bundle.credential_jwt;
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const sanitized = bundle.email.replace(/[^a-zA-Z0-9._-]/g, '_');
+  a.download = `credentials_${sanitized}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function IdentityPage() {
   return (
@@ -95,6 +114,7 @@ function UserManagementSection() {
     queryFn: () => userApi.list(),
   });
   const [actionResult, setActionResult] = useState<{ type: string; data: AssignDidResponse | AuthorizeResponse } | null>(null);
+  const [credentialBundle, setCredentialBundle] = useState<CredentialBundle | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -129,6 +149,12 @@ function UserManagementSection() {
       if (res.ok) {
         toast.success(`DID assigned to ${userEmail}`);
         setActionResult({ type: 'assign', data: res.data });
+        setCredentialBundle({
+          email: res.data.email,
+          did: res.data.did,
+          private_key_jwk: res.data.private_key_jwk,
+          verification_method_fragment: res.data.verification_method_fragment,
+        });
         queryClient.invalidateQueries({ queryKey: ['users'] });
       } else {
         toast.error((res.data as any).message || 'Failed to assign DID');
@@ -144,6 +170,12 @@ function UserManagementSection() {
       if (res.ok) {
         toast.success('User authorized successfully');
         setActionResult({ type: 'authorize', data: res.data });
+        setCredentialBundle(prev => {
+          if (prev && prev.email === res.data.email) {
+            return { ...prev, credential_jwt: res.data.credential_jwt, did: res.data.did };
+          }
+          return { email: res.data.email, did: res.data.did, credential_jwt: res.data.credential_jwt };
+        });
         queryClient.invalidateQueries({ queryKey: ['users'] });
       } else {
         if (res.status === 422) toast.error('Assign a DID first');
@@ -220,11 +252,32 @@ function UserManagementSection() {
     try {
       const res = await userApi.reactivateDid(userEmail);
       if (res.ok) {
+        const assignData = res.data as AssignDidResponse;
         toast.success('New DID assigned successfully.');
-        setActionResult({ type: 'assign', data: res.data as AssignDidResponse });
+        setActionResult({ type: 'assign', data: assignData });
+        setCredentialBundle({
+          email: assignData.email,
+          did: assignData.did,
+          private_key_jwk: assignData.private_key_jwk,
+          verification_method_fragment: assignData.verification_method_fragment,
+        });
         queryClient.invalidateQueries({ queryKey: ['users'] });
       } else {
         toast.error((res.data as any).message || 'Failed to reactivate DID');
+      }
+    } catch {
+      toast.error('Connection failed');
+    }
+  };
+
+  const handleDownloadCredentials = async (userEmail: string) => {
+    try {
+      const res = await userApi.getCredentials(userEmail);
+      if (res.ok) {
+        downloadCredentialBundle(res.data);
+        toast.success('Credentials file downloaded');
+      } else {
+        toast.error((res.data as any).message || 'Failed to get credentials');
       }
     } catch {
       toast.error('Connection failed');
@@ -311,6 +364,11 @@ function UserManagementSection() {
                                 />
                               )}
                               {u.did && (
+                                <Button size="sm" variant="outline" className="min-w-[7rem]" onClick={() => handleDownloadCredentials(u.email)}>
+                                  <Download className="mr-1 h-3 w-3" /> Credentials
+                                </Button>
+                              )}
+                              {u.did && (
                                 <ConfirmDialog
                                   trigger={<LoadingButton size="sm" variant="outline" className="min-w-[7rem]">Revoke DID</LoadingButton>}
                                   title="Revoke DID"
@@ -364,7 +422,14 @@ function UserManagementSection() {
 
         {actionResult?.type === 'assign' && (
           <div className="space-y-3">
-            <h4 className="text-sm font-medium text-foreground">Assigned DID Details</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-foreground">Assigned DID Details</h4>
+              {credentialBundle && (
+                <Button variant="outline" size="sm" onClick={() => downloadCredentialBundle(credentialBundle)}>
+                  <Download className="mr-1 h-3 w-3" /> Download Credentials
+                </Button>
+              )}
+            </div>
             <SensitiveDisplay
               value={JSON.stringify((actionResult.data as AssignDidResponse).private_key_jwk, null, 2)}
               warning="Save this key securely. It will not be shown again."
@@ -377,11 +442,21 @@ function UserManagementSection() {
         )}
         {actionResult?.type === 'authorize' && (
           <div className="space-y-3">
-            <h4 className="text-sm font-medium text-foreground">Authorization Result</h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-foreground">Authorization Result</h4>
+              {credentialBundle && (
+                <Button variant="outline" size="sm" onClick={() => downloadCredentialBundle(credentialBundle)}>
+                  <Download className="mr-1 h-3 w-3" /> Download Credentials
+                </Button>
+              )}
+            </div>
             <SensitiveDisplay
               value={(actionResult.data as AuthorizeResponse).credential_jwt}
               warning="Provide this to the user. They need it to access the portal."
             />
+            {credentialBundle?.private_key_jwk && credentialBundle?.credential_jwt && (
+              <InlineNotice type="info" message="The downloaded file contains both the private key and credential JWT — ready to be imported in the portal." />
+            )}
           </div>
         )}
       </div>

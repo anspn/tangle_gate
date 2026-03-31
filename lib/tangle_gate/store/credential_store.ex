@@ -99,6 +99,7 @@ defmodule TangleGate.Store.CredentialStore do
       "holder_did" => credential_meta.holder_did,
       "credential_type" => credential_meta.credential_type,
       "claims_summary" => credential_meta[:claims_summary],
+      "credential_jwt" => credential_meta[:credential_jwt],
       "issued_at" => DateTime.utc_now(),
       "revoked" => false
     }
@@ -304,6 +305,23 @@ defmodule TangleGate.Store.CredentialStore do
   # Private
   # ============================================================================
 
+  @doc """
+  Get the latest non-revoked credential JWT for a holder DID.
+  Returns `{:ok, jwt}` or `:not_found`.
+  """
+  @spec get_active_credential_jwt(String.t()) :: {:ok, String.t()} | :not_found
+  def get_active_credential_jwt(holder_did) do
+    case Mongo.find_one(Repo.pool(), @credentials_collection, %{
+           "holder_did" => holder_did,
+           "revoked" => false
+         },
+           sort: %{"issued_at" => -1}
+         ) do
+      nil -> :not_found
+      doc -> if doc["credential_jwt"], do: {:ok, doc["credential_jwt"]}, else: :not_found
+    end
+  end
+
   defp deserialize_credential(doc) do
     %{
       credential_id: doc["credential_id"],
@@ -311,6 +329,7 @@ defmodule TangleGate.Store.CredentialStore do
       holder_did: doc["holder_did"],
       credential_type: doc["credential_type"],
       claims_summary: doc["claims_summary"],
+      credential_jwt: doc["credential_jwt"],
       issued_at: doc["issued_at"],
       revoked: doc["revoked"] || false
     }

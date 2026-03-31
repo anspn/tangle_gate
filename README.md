@@ -12,6 +12,7 @@ and WebSocket.
 - **Verifiable Presentations**: Create and verify W3C Verifiable Presentations with challenge/expiry
 - **DID-based Login**: Login with email or DID as identifier + password
 - **User Management**: Admin can create dynamic users, assign DIDs, authorize/unauthorize, revoke DIDs on-chain, and delete users
+- **Credential File Transfer**: Admin can download a credentials JSON file after DID assignment/authorization; users can import it on the portal page
 - **Credential Revocation**: Server-side revocation tracking in MongoDB (TODO: on-chain via revocation bitmaps)
 - **Notarization**: Timestamp and hash-anchor data for Tangle submission
 - **Supervised Architecture**: Fault-tolerant supervision tree

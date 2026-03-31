@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Upload } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { LoadingButton } from '@/components/shared/LoadingButton';
@@ -113,6 +116,39 @@ function VPCreationCard({ onSessionStarted }: { onSessionStarted: (sessionId: st
   const [privateKey, setPrivateKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        let filled = false;
+        if (data.credential_jwt && typeof data.credential_jwt === 'string') {
+          setCredentialJwt(data.credential_jwt);
+          filled = true;
+        }
+        if (data.private_key_jwk) {
+          const jwk = typeof data.private_key_jwk === 'string' ? data.private_key_jwk : JSON.stringify(data.private_key_jwk, null, 2);
+          setPrivateKey(jwk);
+          filled = true;
+        }
+        if (filled) {
+          setError('');
+          toast.success('Credentials loaded from file');
+        } else {
+          toast.error('File does not contain credential_jwt or private_key_jwk');
+        }
+      } catch {
+        toast.error('Invalid JSON file');
+      }
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,7 +186,15 @@ function VPCreationCard({ onSessionStarted }: { onSessionStarted: (sessionId: st
 
   return (
     <div className="rounded-lg border border-border bg-card p-6 shadow-tg-sm">
-      <h3 className="text-base font-semibold mb-5 text-foreground">Start Terminal Session</h3>
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-base font-semibold text-foreground">Start Terminal Session</h3>
+        <div>
+          <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={handleFileUpload} />
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="mr-1 h-3 w-3" /> Import Credentials File
+          </Button>
+        </div>
+      </div>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
