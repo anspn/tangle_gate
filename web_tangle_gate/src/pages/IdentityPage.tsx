@@ -201,6 +201,21 @@ function UserManagementSection() {
     }
   };
 
+  const handlePermanentDeleteUser = async (userEmail: string) => {
+    try {
+      const res = await userApi.permanentDeleteUser(userEmail);
+      if (res.ok) {
+        toast.success('User permanently deleted.');
+        setActionResult(null);
+        queryClient.invalidateQueries({ queryKey: ['users'] });
+      } else {
+        toast.error((res.data as any).message || 'Failed to permanently delete user');
+      }
+    } catch {
+      toast.error('Connection failed');
+    }
+  };
+
   const handleReactivateDid = async (userEmail: string) => {
     try {
       const res = await userApi.reactivateDid(userEmail);
@@ -327,6 +342,16 @@ function UserManagementSection() {
                             onConfirm={() => handleDeleteUser(u.email)}
                           />
                         </div>
+                      )}
+                      {u.source === 'dynamic' && status === 'Deleted' && !u.did && (
+                        <ConfirmDialog
+                          trigger={<LoadingButton size="sm" variant="destructive" className="min-w-[7rem]">Permanently Delete</LoadingButton>}
+                          title="Permanently Delete User"
+                          message={`This will permanently remove ${u.email} from the database. This action cannot be undone.`}
+                          confirmLabel="Permanently Delete"
+                          cancelLabel="Go back"
+                          onConfirm={() => handlePermanentDeleteUser(u.email)}
+                        />
                       )}
                     </td>
                   </tr>

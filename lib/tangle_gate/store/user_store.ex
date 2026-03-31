@@ -212,6 +212,33 @@ defmodule TangleGate.Store.UserStore do
   end
 
   @doc """
+  Permanently remove a user document from MongoDB.
+
+  Only allowed for users who have never been assigned a DID (audit trail
+  requirement — users with a DID history must be soft-deleted instead).
+
+  Returns `:ok` or `{:error, reason}`.
+  """
+  @spec permanently_delete_user(String.t()) :: :ok | {:error, term()}
+  def permanently_delete_user(email) do
+    case get_user_by_email(email) do
+      :not_found ->
+        {:error, "User not found: #{email}"}
+
+      {:ok, user} ->
+        if user.did do
+          {:error, "Cannot permanently delete a user with a DID history. Use soft-delete instead."}
+        else
+          case Mongo.delete_one(Repo.pool(), @collection, %{"email" => email}) do
+            {:ok, %Mongo.DeleteResult{deleted_count: 1}} -> :ok
+            {:ok, %Mongo.DeleteResult{deleted_count: 0}} -> {:error, "User not found: #{email}"}
+            {:error, reason} -> {:error, reason}
+          end
+        end
+    end
+  end
+
+  @doc """
   List all dynamic users.
   """
   @spec list_users(keyword()) :: [map()]

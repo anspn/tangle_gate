@@ -21,6 +21,7 @@ defmodule TangleGate.Web.API.CredentialHandler do
   - `POST /api/credentials/users/:email/revoke-did` — Revoke DID on-chain (admin, irreversible)
   - `POST /api/credentials/users/:email/reactivate-did` — Assign new DID after revocation (admin)
   - `POST /api/credentials/users/:email/delete`   — Delete user (revoke DID + disable access) (admin)
+  - `POST /api/credentials/users/:email/permanent-delete` — Permanently remove user (admin, no DID history only)
   """
 
   use Plug.Router
@@ -214,6 +215,15 @@ defmodule TangleGate.Web.API.CredentialHandler do
   post "/users/:email/delete" do
     conn = require_admin(conn)
     if conn.halted, do: conn, else: do_delete_user(conn, conn.params["email"])
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /api/credentials/users/:email/permanent-delete — Permanently remove user (admin)
+  # Only allowed for users who never had a DID assigned.
+  # ---------------------------------------------------------------------------
+  post "/users/:email/permanent-delete" do
+    conn = require_admin(conn)
+    if conn.halted, do: conn, else: do_permanent_delete_user(conn, conn.params["email"])
   end
 
   # ---------------------------------------------------------------------------
@@ -689,6 +699,25 @@ defmodule TangleGate.Web.API.CredentialHandler do
               message: "User deleted. DID revoked on-chain and access credentials disabled."
             })
         end
+    end
+  end
+
+  defp do_permanent_delete_user(conn, email) do
+    case UserStore.permanently_delete_user(email) do
+      :ok ->
+        Helpers.json(conn, 200, %{
+          email: email,
+          message: "User permanently deleted from the system."
+        })
+
+      {:error, reason} when is_binary(reason) ->
+        Helpers.json(conn, 422, %{error: "permanent_delete_failed", message: reason})
+
+      {:error, reason} ->
+        Helpers.json(conn, 500, %{
+          error: "permanent_delete_failed",
+          message: "Failed to permanently delete user: #{inspect(reason)}"
+        })
     end
   end
 
