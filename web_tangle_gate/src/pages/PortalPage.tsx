@@ -263,7 +263,7 @@ function TerminalCard({
       </div>
       <iframe
         id="terminal-iframe"
-        src="http://localhost:7681"
+        src="/terminal"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         allow="clipboard-read; clipboard-write"
         className="w-full border-0"

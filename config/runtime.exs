@@ -24,7 +24,7 @@ if config_env() == :prod do
     faucet_url: env.("IOTA_FAUCET_URL", "https://faucet.testnet.iota.cafe/gas"),
     identity_pkg_id: env.("IOTA_IDENTITY_PKG_ID", ""),
     notarize_pkg_id: env.("IOTA_NOTARIZE_PKG_ID", ""),
-    ttyd_url: env.("TTYD_URL", "http://localhost:7681"),
+    ttyd_url: env.("TTYD_URL", "/terminal"),
     # TTY session recording — shared Docker volume with ttyd container
     sessions_dir: env.("SESSIONS_DIR", "/data/sessions"),
     # IOTA Ed25519 secret key — used for on-chain notarization of sessions

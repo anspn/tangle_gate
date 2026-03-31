@@ -13,6 +13,7 @@ Type=simple
 ExecStart=/usr/local/bin/ttyd \
   --writable \
   --port 7681 \
+  --base-path /terminal \
   /data/scripts/session_login.sh
 
 Restart=on-failure

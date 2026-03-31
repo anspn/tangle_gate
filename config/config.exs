@@ -16,7 +16,7 @@ config :tangle_gate,
   # Set to true to require login before accessing the app
   login_required: true,
   # ttyd URL for portal terminal (user-facing URL the browser connects to)
-  ttyd_url: "http://localhost:7681"
+  ttyd_url: "/terminal"
 
 # JWT Authentication
 config :tangle_gate, TangleGate.Web.Auth,

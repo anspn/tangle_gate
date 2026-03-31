@@ -21,6 +21,11 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     proxy: {
       '/api': 'http://localhost:4000',
+      '/terminal': {
+        target: 'http://localhost:7681',
+        ws: true,
+        rewrite: (path) => path.replace(/^\/terminal/, ''),
+      },
     },
   },
   build: {

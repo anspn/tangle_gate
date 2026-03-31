@@ -186,17 +186,20 @@ cp .env.example .env
 # 2. Build and start all services
 docker compose up -d --build
 
-# 3. Open http://localhost:4000 (app) or http://localhost:7681 (ttyd directly)
+# 3. Open http://localhost:8980 (all traffic goes through Traefik reverse proxy)
+#    App (SPA + API) is served at /
+#    Terminal is served at /terminal
 ```
 
 ### Services
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| `app` | 4000 | IOTA Service (Elixir) |
-| `backend` | 7681, 8800 | systemd container: logind + sshd + ttyd + tangle_gate_agent |
-| `mongo` | 27017 | MongoDB — document store for sessions & notarization records |
-| `vault` | 8200 | HashiCorp Vault — secrets management (IOTA private keys) |
+| `traefik` | 80 (mapped) | Reverse proxy — single external entry point |
+| `app` | internal | IOTA Service (Elixir) — routed via Traefik `/` |
+| `backend` | internal | systemd container: logind + sshd + ttyd + tangle_gate_agent — ttyd at `/terminal` |
+| `mongo` | internal | MongoDB — document store for sessions & notarization records |
+| `vault` | internal | HashiCorp Vault — secrets management (IOTA private keys) |
 
 The `backend` container runs systemd as PID 1 and bundles the web terminal (ttyd), SSH server (with PAM/logind session management), and the credential verification agent. When an admin terminates a session, the agent sends SIGHUP to the logind session scope via `systemctl kill`, which immediately kills all processes (interactive bash doesn't ignore SIGHUP). `loginctl terminate-session` follows for scope cleanup.
 
