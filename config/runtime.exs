@@ -89,7 +89,6 @@ if config_env() == :prod do
       pw -> pw
     end
 
-  user_password = env.("USER_PASSWORD", nil)
   verifier_password = env.("VERIFIER_PASSWORD", nil)
 
   config :tangle_gate, TangleGate.Web.Auth,
@@ -104,17 +103,6 @@ if config_env() == :prod do
           role: "admin"
         }
       ] ++
-        if(user_password,
-          do: [
-            %{
-              id: env.("USER_USER_ID", "usr_user"),
-              email: env.("USER_EMAIL", "user@iota.local"),
-              password: user_password,
-              role: "user"
-            }
-          ],
-          else: []
-        ) ++
         if(verifier_password,
           do: [
             %{

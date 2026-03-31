@@ -14,7 +14,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="flex flex-col items-center gap-3">
-          <img src="/logo.svg" alt="TangleGate" className="h-14 w-14" />
+          <img src="/logo.svg" alt="TangleGate" className="h-28 w-28" />
           <h1 className="text-3xl font-bold text-foreground">TangleGate</h1>
           <p className="text-base text-tg-text-muted">Decentralized Identity & Session Notarization</p>
         </div>
@@ -26,7 +26,6 @@ export default function LoginPage() {
         <div className="space-y-1.5 text-center text-sm text-tg-text-muted">
           <p>Test accounts:</p>
           <p className="font-mono text-xs">admin@iota.local / iota_admin_2026</p>
-          <p className="font-mono text-xs">user@iota.local / iota_user_2026</p>
           <p className="font-mono text-xs">verifier@iota.local / iota_verifier_2026</p>
         </div>
       </div>

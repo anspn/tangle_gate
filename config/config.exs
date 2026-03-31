@@ -24,7 +24,6 @@ config :tangle_gate, TangleGate.Web.Auth,
   token_ttl_seconds: 3600,
   users: [
     %{id: "usr_admin", email: "admin@iota.local", password: "iota_admin_2026", role: "admin"},
-    %{id: "usr_user", email: "user@iota.local", password: "iota_user_2026", role: "user"},
     %{
       id: "usr_verifier",
       email: "verifier@iota.local",
