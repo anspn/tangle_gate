@@ -25,7 +25,7 @@ and WebSocket.
 - **Credential Verification Agent**: Standalone microservice (`tangle_gate_agent`) for VC/VP verification, deployable as systemd service
 - **Graceful Degradation**: Main app continues operating when the agent is unavailable (verification fails gracefully)
 - **Agent Session Termination**: Agent terminates user sessions via `systemctl kill` (SIGHUP to session scope) + `loginctl terminate-session` for cleanup
-- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with backend (systemd + logind + sshd + ttyd + agent), MongoDB, and Vault
+- **Docker Ready**: Multi-stage Dockerfile + Docker Compose with wallet init, backend (systemd + logind + sshd + ttyd + agent), MongoDB, and Vault
 - **Email Notifications**: SMTP notifications for user lifecycle events (account creation, DID assignment, credential issuance)
 
 
@@ -184,6 +184,10 @@ Configure via `config/config.exs`
 cp .env.example .env
 
 # 2. Build and start all services
+#    The wallet container runs first: generates an IOTA address, requests
+#    faucet tokens, and exports the private key to a shared volume.
+#    The app container reads the key automatically via its entrypoint.
+#    Set IOTA_SECRET_KEY in .env to override the auto-generated key.
 docker compose up -d --build
 
 # 3. Open http://localhost:8980 (all traffic goes through Traefik reverse proxy)
@@ -195,6 +199,7 @@ docker compose up -d --build
 
 | Service | Port | Purpose |
 |---------|------|---------|
+| `wallet` | none (one-shot) | Generates IOTA address, requests faucet tokens, exports private key |
 | `traefik` | 80 (mapped) | Reverse proxy — single external entry point |
 | `app` | internal | IOTA Service (Elixir) — routed via Traefik `/` |
 | `backend` | internal | systemd container: logind + sshd + ttyd + tangle_gate_agent — ttyd at `/terminal` |

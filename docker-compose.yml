@@ -31,6 +31,29 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
+  # Wallet — One-shot IOTA wallet init (generates address, requests faucet coins)
+  # ---------------------------------------------------------------------------
+  # Runs once before the app starts. Generates an Ed25519 address, requests
+  # testnet faucet tokens, and exports the private key to a shared volume.
+  # The app container reads the key via its entrypoint script.
+  # On subsequent runs, the wallet is reused from the persisted volume.
+  # ---------------------------------------------------------------------------
+  wallet:
+    build:
+      context: wallet
+      dockerfile: Dockerfile
+    container_name: tangle_gate_wallet
+    entrypoint: ["/bin/sh", "./wallet-init.sh"]
+    volumes:
+      # Output files (address.txt, private_key.txt) — shared with app
+      - wallet_data:/wallet
+      # IOTA CLI keystore persistence — needed for key export on re-runs
+      - wallet_keystore:/root/.iota
+    networks:
+      - tangle_gate_net
+    dns: 1.1.1.1
+
+  # ---------------------------------------------------------------------------
   # App — Elixir backend + React SPA frontend
   # ---------------------------------------------------------------------------
   app:
@@ -42,6 +65,8 @@ services:
     volumes:
       # Shared session recording volume (app writes pending files, reads history)
       - session_data:/data/sessions
+      # Wallet-generated IOTA key (read-only — written by wallet container)
+      - wallet_data:/wallet:ro
     environment:
       # Required vars validated at compose-up time
       SECRET_KEY_BASE: "${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in .env}"
@@ -67,6 +92,8 @@ services:
       - "traefik.http.services.app.loadbalancer.server.port=4000"
     restart: unless-stopped
     depends_on:
+      wallet:
+        condition: service_completed_successfully
       mongo:
         condition: service_healthy
       vault:
@@ -186,6 +213,8 @@ services:
       retries: 3
 
 volumes:
+  wallet_data:
+  wallet_keystore:
   session_data:
   mongo_data:
   vault_data:
