@@ -31,7 +31,6 @@ defmodule TangleGate.MixProject do
       # Web server & HTTP
       {:bandit, "~> 1.10"},
       {:plug, "~> 1.19"},
-      {:websock_adapter, "~> 0.5"},
 
       # JWT authentication
       {:joken, "~> 2.6"},
@@ -41,6 +40,9 @@ defmodule TangleGate.MixProject do
 
       # HTTP client
       {:req, "~> 0.5"},
+
+      # WebSocket client (connects to agent microservice)
+      {:websockex, "~> 0.4"},
 
       # SMTP email client
       {:gen_smtp, "~> 1.2"},

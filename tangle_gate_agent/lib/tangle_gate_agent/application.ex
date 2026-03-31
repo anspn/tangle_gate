@@ -7,9 +7,8 @@ defmodule TangleGateAgent.Application do
       TangleGateAgent.Application (rest_for_one)
       ├── TangleGateAgent.NIF.Loader          # Ensures NIF is loaded first
       ├── TangleGateAgent.Session.Tracker      # ETS session tracking
-      ├── TangleGateAgent.WS.Client           # WebSocket client to tangle_gate
-      └── Bandit (port 8800)                   # HTTP verification API
-          └── TangleGateAgent.Web.Router
+      └── Bandit (port 8800)                   # HTTP + WebSocket server
+          └── TangleGateAgent.Web.Router       # /api/* + /ws/events
 
   **Strategy**: `rest_for_one` — if NIF.Loader crashes, all downstream
   services restart since they depend on it.
@@ -26,8 +25,7 @@ defmodule TangleGateAgent.Application do
     children =
       [
         TangleGateAgent.NIF.Loader,
-        TangleGateAgent.Session.Tracker,
-        TangleGateAgent.WS.Client
+        TangleGateAgent.Session.Tracker
       ] ++ web_children()
 
     opts = [strategy: :rest_for_one, name: TangleGateAgent.Supervisor]

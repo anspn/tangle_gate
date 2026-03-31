@@ -31,8 +31,8 @@ defmodule TangleGateAgent.MixProject do
       # JSON
       {:jason, "~> 1.4"},
 
-      # WebSocket client (connects to tangle_gate)
-      {:websockex, "~> 0.4"},
+      # WebSocket upgrade support (tangle_gate connects to agent)
+      {:websock_adapter, "~> 0.5"},
 
       # Telemetry
       {:telemetry, "~> 1.2"}

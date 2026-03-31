@@ -135,11 +135,12 @@ services:
       - session_data:/data/sessions
     environment:
       # Agent configuration (injected into systemd env file at boot)
-      TANGLE_GATE_WS_URL: "ws://app:4000/ws/agent"
       AGENT_API_KEY: "${AGENT_API_KEY:?Set AGENT_API_KEY in .env}"
       IOTA_NODE_URL: "${IOTA_NODE_URL:-https://api.testnet.iota.cafe}"
       IOTA_IDENTITY_PKG_ID: "${IOTA_IDENTITY_PKG_ID:-}"
       AGENT_PORT: "8800"
+      # Full WebSocket URL the agent advertises in its health endpoint
+      AGENT_WS_URL: "ws://backend:8800/ws/events"
       # Session user password (optional, default: sessionpass)
       SESSION_USER_PASSWORD: "${SESSION_USER_PASSWORD:-sessionpass}"
     networks:
@@ -151,9 +152,6 @@ services:
       # Agent HTTP API
       - "${AGENT_PORT:-8800}:8800"
     restart: unless-stopped
-    depends_on:
-      app:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8800/api/health"]
       interval: 30s

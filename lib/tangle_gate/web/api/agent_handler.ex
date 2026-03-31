@@ -30,15 +30,18 @@ defmodule TangleGate.Web.API.AgentHandler do
     unless user.role == "admin" do
       Helpers.json(conn, 403, %{error: "forbidden", message: "Admin only"})
     else
-      agent_reachable = TangleGate.Agent.Client.healthy?()
+      # Run HTTP and WS health checks concurrently
+      http_task = Task.async(fn -> TangleGate.Agent.Client.healthy?() end)
+      ws_task = Task.async(fn -> TangleGate.Agent.WS.connected?() end)
 
-      ws_connected = TangleGate.Web.WS.AgentRegistry.any_connected?()
-      ws_count = TangleGate.Web.WS.AgentRegistry.count()
+      agent_reachable = Task.await(http_task, 10_000)
+      ws_connected = Task.await(ws_task, 10_000)
+      ws_url = TangleGate.Agent.WS.ws_url()
 
       Helpers.json(conn, 200, %{
         agent_reachable: agent_reachable,
         ws_connected: ws_connected,
-        ws_agent_count: ws_count,
+        ws_url: ws_url,
         timestamp: DateTime.utc_now()
       })
     end
@@ -54,10 +57,11 @@ defmodule TangleGate.Web.API.AgentHandler do
       Helpers.json(conn, 403, %{error: "forbidden", message: "Admin only"})
     else
       config = Application.get_env(:tangle_gate, TangleGate.Agent.Client, [])
+      ws_url = TangleGate.Agent.WS.ws_url()
 
       Helpers.json(conn, 200, %{
         url: Keyword.get(config, :url, "http://localhost:8800"),
-        ws_url: Keyword.get(config, :ws_url, "ws://localhost:4000/ws/agent"),
+        ws_url: ws_url,
         api_key: mask_key(Keyword.get(config, :api_key, "")),
         timeout: Keyword.get(config, :timeout, 30_000)
       })
@@ -79,16 +83,17 @@ defmodule TangleGate.Web.API.AgentHandler do
       updated =
         current
         |> maybe_update(:url, params["url"])
-        |> maybe_update(:ws_url, params["ws_url"])
         |> maybe_update(:api_key, params["api_key"])
         |> maybe_update_int(:timeout, params["timeout"])
 
       Application.put_env(:tangle_gate, TangleGate.Agent.Client, updated)
 
+      ws_url = TangleGate.Agent.WS.ws_url()
+
       Helpers.json(conn, 200, %{
         message: "Agent client configuration updated",
         url: Keyword.get(updated, :url, "http://localhost:8800"),
-        ws_url: Keyword.get(updated, :ws_url, "ws://localhost:4000/ws/agent"),
+        ws_url: ws_url,
         api_key: mask_key(Keyword.get(updated, :api_key, "")),
         timeout: Keyword.get(updated, :timeout, 30_000)
       })

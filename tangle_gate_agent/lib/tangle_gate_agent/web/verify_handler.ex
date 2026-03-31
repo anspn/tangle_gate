@@ -184,21 +184,16 @@ defmodule TangleGateAgent.Web.VerifyHandler do
   # ---------------------------------------------------------------------------
   get "/health" do
     nif_ready = TangleGateAgent.NIF.Loader.ready?()
-    ws_connected = TangleGateAgent.WS.Client.connected?()
 
-    status =
-      cond do
-        nif_ready and ws_connected -> "ok"
-        nif_ready -> "degraded"
-        true -> "unavailable"
-      end
-
+    status = if nif_ready, do: "ok", else: "unavailable"
     code = if nif_ready, do: 200, else: 503
+
+    ws_url = Application.get_env(:tangle_gate_agent, :ws_url, "ws://localhost:8800/ws/events")
 
     Helpers.json(conn, code, %{
       status: status,
       nif_loaded: nif_ready,
-      websocket_connected: ws_connected,
+      ws_url: ws_url,
       timestamp: DateTime.utc_now()
     })
   end

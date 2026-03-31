@@ -249,8 +249,8 @@ defmodule TangleGate.Session.Manager do
     # Persist session metadata to MongoDB asynchronously
     persist_async({:upsert_session, session})
 
-    # Notify connected agents about the new session
-    TangleGate.Web.WS.AgentRegistry.notify_session_started(%{
+    # Notify connected agent about the new session
+    TangleGate.Agent.WS.notify_session_started(%{
       session_id: session_id,
       user_id: user_id,
       did: did,
@@ -293,8 +293,8 @@ defmodule TangleGate.Session.Manager do
         # Write terminate marker so the shell exits (Docker/ttyd fallback)
         write_terminate_marker(session_id)
 
-        # Also request termination via agent WebSocket (bare-metal/systemd)
-        TangleGate.Web.WS.AgentRegistry.request_termination(session_id)
+        # Also request termination via agent WebSocket
+        TangleGate.Agent.WS.request_termination(session_id)
 
         # Wait for the watchdog (1s poll) to detect the file, kill bash,
         # let the EXIT trap flush, and filesystem sync across the volume
@@ -471,9 +471,9 @@ defmodule TangleGate.Session.Manager do
     {{:ok, updated_session}, new_state}
   end
 
-  # Also notify connected agents that the session ended
+  # Also notify connected agent that the session ended
   defp notify_session_ended(session_id) do
-    TangleGate.Web.WS.AgentRegistry.notify_session_ended(session_id)
+    TangleGate.Agent.WS.notify_session_ended(session_id)
   end
 
   # ============================================================================

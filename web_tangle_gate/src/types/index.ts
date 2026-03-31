@@ -166,7 +166,7 @@ export interface HealthResponse {
 export interface AgentStatus {
   agent_reachable: boolean;
   ws_connected: boolean;
-  ws_agent_count: number;
+  ws_url: string;
   timestamp: string;
 }
 

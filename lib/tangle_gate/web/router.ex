@@ -39,24 +39,6 @@ defmodule TangleGate.Web.Router do
   plug(:match)
   plug(:dispatch)
 
-  # WebSocket upgrade for agent connections
-  get "/ws/agent" do
-    conn = fetch_query_params(conn)
-    api_key = conn.query_params["api_key"] || ""
-    expected = Application.get_env(:tangle_gate, TangleGate.Agent.Client, [])[:api_key] || ""
-
-    if api_key != "" and api_key == expected do
-      conn
-      |> WebSockAdapter.upgrade(TangleGate.Web.WS.AgentHandler, [], timeout: 60_000)
-      |> halt()
-    else
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.send_resp(401, Jason.encode!(%{error: "unauthorized"}))
-      |> halt()
-    end
-  end
-
   forward("/api", to: TangleGate.Web.API.Router)
 
   match _ do

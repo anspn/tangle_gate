@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { LoadingButton } from '@/components/shared/LoadingButton';
 import { InlineNotice } from '@/components/shared/UIElements';
 import { agentApi } from '@/lib/api';
-import { Wifi, WifiOff, Settings, RefreshCw, Radio } from 'lucide-react';
+import { Wifi, WifiOff, Settings, RefreshCw, Radio, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function AgentPage() {
@@ -29,15 +29,30 @@ export default function AgentPage() {
 // Agent Status Card — live connection status
 // =============================================================================
 
+type ConnectionState = 'connecting' | 'connected' | 'disconnected';
+
+function deriveState(isLoading: boolean, isFetching: boolean, value: boolean | undefined): ConnectionState {
+  // First load or refetching after an error — show connecting
+  if (isLoading) return 'connecting';
+  // We have data — use it
+  if (value !== undefined) return value ? 'connected' : 'disconnected';
+  // Fetching but no data yet (shouldn't normally happen)
+  if (isFetching) return 'connecting';
+  return 'disconnected';
+}
+
 function AgentStatusCard() {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ['agentStatus'],
     queryFn: () => agentApi.status(),
     refetchInterval: 10_000,
+    retry: false,
   });
 
   const status = data?.ok ? data.data : null;
+  const httpState = deriveState(isLoading, isFetching, status?.agent_reachable);
+  const wsState = deriveState(isLoading, isFetching, status?.ws_connected);
 
   return (
     <div className="rounded-lg border border-border bg-card shadow-tg-sm">
@@ -55,59 +70,59 @@ function AgentStatusCard() {
         </Button>
       </div>
       <div className="p-5">
-        {isLoading ? (
-          <div className="h-24 animate-pulse rounded bg-tg-surface" />
-        ) : !status ? (
-          <InlineNotice type="error" message="Failed to fetch agent status" />
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatusIndicator
-              label="HTTP API"
-              description="Agent verification endpoint reachability"
-              connected={status.agent_reachable}
-            />
-            <StatusIndicator
-              label="WebSocket"
-              description="Real-time session event channel"
-              connected={status.ws_connected}
-            />
-            <div className="rounded-lg border border-border bg-tg-surface/50 p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Radio className="h-4 w-4 text-tg-text-muted" />
-                <span className="text-sm font-medium text-foreground">Connected Agents</span>
-              </div>
-              <span className="text-2xl font-semibold text-foreground">{status.ws_agent_count}</span>
-              <p className="text-xs text-tg-text-muted mt-1">Active WebSocket connections</p>
-            </div>
-          </div>
-        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatusIndicator
+            label="HTTP API"
+            state={httpState}
+          />
+          <StatusIndicator
+            label="WebSocket"
+            state={wsState}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
-function StatusIndicator({ label, description, connected }: { label: string; description: string; connected: boolean }) {
+function StatusIndicator({ label, state }: {
+  label: string;
+  state: ConnectionState;
+}) {
+  const icon = {
+    connecting: <Loader2 className="h-4 w-4 text-amber-500 animate-spin" />,
+    connected: <Wifi className="h-4 w-4 text-tg-success" />,
+    disconnected: <WifiOff className="h-4 w-4 text-tg-danger" />,
+  }[state];
+
+  const dotColor = {
+    connecting: 'bg-amber-500',
+    connected: 'bg-tg-success',
+    disconnected: 'bg-tg-danger',
+  }[state];
+
+  const textColor = {
+    connecting: 'text-amber-500',
+    connected: 'text-tg-success',
+    disconnected: 'text-tg-danger',
+  }[state];
+
+  const stateLabel = {
+    connecting: 'Connecting',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+  }[state];
+
   return (
     <div className="rounded-lg border border-border bg-tg-surface/50 p-4">
       <div className="flex items-center gap-2 mb-1">
-        {connected ? (
-          <Wifi className="h-4 w-4 text-tg-success" />
-        ) : (
-          <WifiOff className="h-4 w-4 text-tg-danger" />
-        )}
+        {icon}
         <span className="text-sm font-medium text-foreground">{label}</span>
       </div>
       <div className="flex items-center gap-2">
-        <span
-          className={`inline-block h-2.5 w-2.5 rounded-full ${
-            connected ? 'bg-tg-success' : 'bg-tg-danger'
-          }`}
-        />
-        <span className={`text-sm font-medium ${connected ? 'text-tg-success' : 'text-tg-danger'}`}>
-          {connected ? 'Connected' : 'Disconnected'}
-        </span>
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${dotColor}`} />
+        <span className={`text-sm font-medium ${textColor}`}>{stateLabel}</span>
       </div>
-      <p className="text-xs text-tg-text-muted mt-1">{description}</p>
     </div>
   );
 }
@@ -124,9 +139,6 @@ function AgentConfigCard() {
   });
 
   const [url, setUrl] = useState('');
-  const [wsUrl, setWsUrl] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [timeout, setTimeout] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [initialized, setInitialized] = useState(false);
@@ -134,9 +146,6 @@ function AgentConfigCard() {
   // Populate fields once data loads
   if (data?.ok && !initialized) {
     setUrl(data.data.url);
-    setWsUrl(data.data.ws_url);
-    setApiKey('');
-    setTimeout(String(data.data.timeout));
     setInitialized(true);
   }
 
@@ -147,9 +156,6 @@ function AgentConfigCard() {
     try {
       const body: Record<string, string | number> = {};
       if (url.trim()) body.url = url.trim();
-      if (wsUrl.trim()) body.ws_url = wsUrl.trim();
-      if (apiKey.trim()) body.api_key = apiKey.trim();
-      if (timeout.trim()) body.timeout = parseInt(timeout.trim(), 10);
 
       if (Object.keys(body).length === 0) {
         setError('No changes to save');
@@ -160,11 +166,12 @@ function AgentConfigCard() {
       const res = await agentApi.updateConfig(body);
       if (res.ok) {
         toast.success('Agent configuration updated');
-        setApiKey('');
-        queryClient.invalidateQueries({ queryKey: ['agentConfig'] });
+        // Update local state from the response immediately
+        setUrl(res.data.url);
+        // Update the query cache so the WS URL reflects the new config
+        queryClient.setQueryData(['agentConfig'], res);
         queryClient.invalidateQueries({ queryKey: ['agentStatus'] });
         queryClient.invalidateQueries({ queryKey: ['health'] });
-        setInitialized(false);
       } else {
         setError((res.data as any).message || 'Failed to update configuration');
       }
@@ -174,6 +181,8 @@ function AgentConfigCard() {
       setSaving(false);
     }
   };
+
+  const wsUrl = data?.ok ? data.data.ws_url?.replace(/\/ws\/events\/?$/, '') : '';
 
   return (
     <div className="rounded-lg border border-border bg-card shadow-tg-sm">
@@ -188,43 +197,22 @@ function AgentConfigCard() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Agent HTTP URL</Label>
+                <Label>Agent URL</Label>
                 <Input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="http://localhost:8800"
                 />
-                <p className="text-xs text-tg-text-muted">HTTP endpoint of the agent</p>
+                <p className="text-xs text-tg-text-muted">Base HTTP URL of the agent service</p>
               </div>
               <div className="space-y-2">
-                <Label>Agent WebSocket URL</Label>
+                <Label>WebSocket URL</Label>
                 <Input
                   value={wsUrl}
-                  onChange={(e) => setWsUrl(e.target.value)}
-                  placeholder="ws://localhost:4000/ws/agent"
+                  disabled
+                  className="bg-muted text-muted-foreground"
                 />
-                <p className="text-xs text-tg-text-muted">WebSocket endpoint the agent connects to</p>
-              </div>
-              <div className="space-y-2">
-                <Label>API Key</Label>
-                <Input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={data?.ok ? data.data.api_key : 'Enter new API key'}
-                />
-                <p className="text-xs text-tg-text-muted">Leave blank to keep current key</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Timeout (ms)</Label>
-                <Input
-                  type="number"
-                  min={1000}
-                  value={timeout}
-                  onChange={(e) => setTimeout(e.target.value)}
-                  placeholder="30000"
-                />
-                <p className="text-xs text-tg-text-muted">Request timeout in milliseconds</p>
+                <p className="text-xs text-tg-text-muted">Queried from Agent URL</p>
               </div>
             </div>
             {error && <InlineNotice type="error" message={error} />}

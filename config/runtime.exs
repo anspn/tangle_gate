@@ -62,7 +62,6 @@ if config_env() == :prod do
   # --- Agent microservice ---
   config :tangle_gate, TangleGate.Agent.Client,
     url: env.("AGENT_URL", "http://localhost:8800"),
-    ws_url: env.("AGENT_WS_URL", "ws://localhost:4000/ws/agent"),
     api_key: env.("AGENT_API_KEY", ""),
     timeout: String.to_integer(env.("AGENT_TIMEOUT", "30000"))
 

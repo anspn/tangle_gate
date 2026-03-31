@@ -27,11 +27,11 @@ mkdir -p /etc/tangle_gate_agent
 
 # --- Inject Docker env vars into the agent environment file ---
 cat > "$ENV_FILE" << EOF
-TANGLE_GATE_WS_URL=${TANGLE_GATE_WS_URL:-ws://app:4000/ws/agent}
 AGENT_API_KEY=${AGENT_API_KEY:-dev-agent-key}
 IOTA_NODE_URL=${IOTA_NODE_URL:-https://api.testnet.iota.cafe}
 IOTA_IDENTITY_PKG_ID=${IOTA_IDENTITY_PKG_ID:-}
 PORT=${AGENT_PORT:-8800}
+AGENT_WS_URL=${AGENT_WS_URL:-ws://localhost:8800/ws/events}
 HOME=/opt/tangle_gate_agent
 EOF
 

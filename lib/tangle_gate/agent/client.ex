@@ -87,15 +87,44 @@ defmodule TangleGate.Agent.Client do
   """
   @spec healthy?() :: boolean()
   def healthy? do
+    case health_check() do
+      {:ok, _body} -> true
+      _ -> false
+    end
+  end
+
+  @doc """
+  Perform a health check against the agent and return the full response body.
+
+  Returns `{:ok, body}` on success (HTTP 200) or `{:error, reason}` otherwise.
+  The body includes a `ws_url` field with the agent's advertised WebSocket endpoint.
+  """
+  @spec health_check() :: {:ok, map()} | {:error, term()}
+  def health_check do
     config = config()
     url = "#{config[:url]}/api/health"
 
     case Req.get(url, receive_timeout: 5_000) do
-      {:ok, %{status: 200}} -> true
-      _ -> false
+      {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
+      {:ok, %{status: status}} -> {:error, "Agent returned status #{status}"}
+      {:error, reason} -> {:error, reason}
     end
   rescue
-    _ -> false
+    e -> {:error, Exception.message(e)}
+  end
+
+  @doc """
+  Discover the agent's advertised WebSocket URL from its health endpoint.
+
+  Returns `{:ok, ws_url}` or `{:error, reason}`.
+  """
+  @spec discover_ws_url() :: {:ok, String.t()} | {:error, term()}
+  def discover_ws_url do
+    case health_check() do
+      {:ok, %{"ws_url" => ws_url}} when is_binary(ws_url) -> {:ok, ws_url}
+      {:ok, _body} -> {:error, :ws_url_not_in_response}
+      {:error, _} = err -> err
+    end
   end
 
   # ============================================================================

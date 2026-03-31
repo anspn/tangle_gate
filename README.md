@@ -65,9 +65,9 @@ TangleGate.Application (rest_for_one)
 │   └── TangleGate.Notarization.Server # Notarization operations
 ├── TangleGate.Session.Supervisor      # (one_for_one)
 │   └── TangleGate.Session.Manager     # Session recording & notarization
-├── TangleGate.Web.WS.AgentRegistry   # Tracks connected agent WebSocket PIDs
+├── TangleGate.Agent.WS                # WebSocket client to agent (WebSockex)
 └── Bandit                              # HTTP server
-    └── TangleGate.Web.Router          # Includes /ws/agent WebSocket upgrade
+    └── TangleGate.Web.Router
 ```
 
 ### Agent Microservice (runs inside backend container)
@@ -76,9 +76,8 @@ TangleGate.Application (rest_for_one)
 TangleGateAgent.Application (rest_for_one)
 ├── TangleGateAgent.NIF.Loader         # Ensures credential/DID NIFs are loaded
 ├── TangleGateAgent.Session.Tracker    # ETS-backed session tracking
-├── TangleGateAgent.WS.Client          # WebSocket client → tangle_gate /ws/agent
-└── Bandit (port 8800)
-    └── TangleGateAgent.Web.Router     # HTTP verification API
+└── Bandit (port 8800)                 # HTTP + WebSocket server
+    └── TangleGateAgent.Web.Router     # /api/* + /ws/events
 ```
 
 The backend container runs systemd as PID 1 with logind, sshd (PAM), ttyd, and the agent.
@@ -263,10 +262,8 @@ The agent requires `CAP_KILL` and `CAP_SYS_PTRACE` capabilities for sending sign
 
 ## TODO
 
-- **lib/tangle_gate/web/auth.ex** (L80) — Modify token verification behaviour to handle expiration of tokens
 - **lib/tangle_gate/credential/challenge_cache.ex** (L17) — Evaluate converting challenge storage from ETS to MongoDB for persistence across restarts and multi-node deployments
-- **lib/tangle_gate/store/credential_store.ex** — Implement on-chain credential revocation via revocation bitmaps when `iota_credential_nif` adds support for revocation operations
-- Swap websocket client/server roles between app and agent. Right now the agent is the client but if app was the client it would be more semantically correct when configuring agent connection parameters
+
 ## License
 
 MIT
